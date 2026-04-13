@@ -34,24 +34,25 @@ Dưới đây là 3 hướng thử nghiệm tính từ Dễ đến Khó. Giai đ
 
 ### Pha 1 (Dễ): Data Pruning - Làm Sạch và Thêm Thắt Node 
 Thay vì đổ hết file `train_candid_paths.bin` vào Classifier. Viết một Script trung gian làm bước lọc.
-1.  **Lọc nhiễu (Pruning):** Đọc nội dung mảng ứng viên, sử dụng thuật toán TF-IDF, BM25, hoặc một vector nhỏ (như `sentence-transformers/all-MiniLM-L6-v2`) để tính toán độ tương quan Semantic giữa các Node trong Path so với câu Claim gốc. Xóa bỏ những đường đi quá lạc đề (< Threshold).
-2.  **Khắc phục lỗi Multi-hop:** Việc lược bỏ bớt các node rác giúp rút ngắn chiều dài chuỗi khi `join` -> Tranh thủ nhường không gian trong định mức 512 token cho các node có ích.
+1.  **Lọc độ nhiễu (Semantic Pruning):** Đọc nội dung mảng ứng viên, sử dụng thuật toán TF-IDF, BM25, hoặc cấu trúc nhẹ `sentence-transformers` để tính độ tương quan (Cosine Similarity) giữa Top-K Triples trong Subgraph với câu Claim gốc. 
+2.  **Bỏ qua "Hub-nodes":** Xóa các đường đi/cạnh đổ vào những khái niệm gốc mang tính phân tán (như 'Country', 'Năm') để tập trung vào logic sâu.
+3.  **Khắc phục lỗi Multi-hop:** Việc lược bỏ node rác nhường không gian trong ngưỡng 512 token để đưa tối đa những cạnh có ích vào thay vì bị cắt cụt ngang chừng.
 
-### Pha 2 (Trung bình): Đổi định dạng Graph - Áp dụng K cấu trúc Triples
-Mục tiêu: Đập bỏ việc ghép `.join()` toàn bộ Graph.
-1.  **Sửa thuật toán Collator (baseline.py):** Thay vì ném mảng `candid_paths` nguyên xi thành 1 string text. Phân rã subgraph ra thành mảng array các **Triples Test** dạng `[CLS] Node A [SEP] Rel 1 [SEP] Node B`. 
-2.  **Chấm điểm Triple Relevance Ranking:** So sánh từng đoạn Triples với Tokenzied Claim. Thay vì nhét toàn bộ vào, mô hình sẽ tính Similarity Score và chỉ chọn `Top K` Triples ghép lại nhồi vào Model. Lúc này cái đưa vào Text Encoder không phải là Subgraph tù mù mà là **K Sự thật kề sát nhất** có ý nghĩa trực tiếp.
+### Pha 2 (Trung bình): Đổi định dạng Graph bằng Verbalization
+Mục tiêu: Đập bỏ việc ghép cụm `.join()` bằng `[SEP]`.
+1.  **Sửa thuật toán Collator (baseline.py):** Hủy bỏ việc tự động nối tổng thể Graph theo mảng dẹt.
+2.  **Tự Nhiên hóa Text (Template-based Verbalization):** Thay vì dạng `Node A [SEP] Rel [SEP] Node B`, ta biến đổi thành câu tiếng Anh lưu loát: `Node A is Rel of Node B.`. Điều này kích hoạt triệt để sức mạnh ngôn ngữ của BERT (vốn được học từ báo chí/sách truyền thống) và làm giảm nhiễu rác Context.
 
-### Pha 3 (Khó, Tính Tiên Phong Học Thuật): Triển khai thuật toán lai SAT
-Đây là lúc thực hiện nâng cấp cấp độ Kiến trúc (Architecture level - Ghi điểm cực mạnh cho báo cáo).
-1.  **Thay thế Baseline BERT:** Không dùng `ConcatClassifier` trong file `baseline.py`. Mà thiết kế lại một Multi-modal input.
-2.  **Áp dụng Structure-Aware Mask:** Tích hợp cấu trúc SAT. Cho Claim đi qua một Encoding Text riêng. Cho Graph đi qua một GNN / Graph Attention riêng. Cấu trúc Graph Attention mask (một ma trận True/False) sẽ làm cho BERT hiểu được "Nhận thức cấu trúc liên kết": Nghĩa là Token chữ A chỉ được tính self-attention với Token chữ B nếu thực tế có một "Cạnh" giữa A và B trong KG.  
+### Pha 3 (Khó, Tính Tiên Phong Học Thuật): Triển khai kiến trúc lai SAT (Structure-Aware Transformer)
+Nâng cấp Architecture (Ghi điểm báo cáo cực mạnh): Giúp mô hình cảm nhận được "HÌNH HỌC" của đồ thị qua Sequence dẹt.
+1.  **Can thiệp Topology:** Kế thừa / Tùy chỉnh (Override) ma trận `attention_mask` của thư viện `transformers` class `BertModel`.
+2.  **Mask Ràng buộc Cạnh:** Thay vì cho "Full Self-Attention", Token $i$ chỉ Attention chéo với Token $j$ NẾU chúng kề nhau trên KG. Kết hợp cộng ma trận "Khoảng cách đường đi" vào tỷ trọng Score, ép AI "dò đường" thay vì đọc lướt một chuỗi ngẫu nhiên.
 
 ---
 
-## 4. Tóm Lược Work-flow Cụ Thể Tuần Này Để Tập Trung
+## 4. Tóm Lược Work-flow Cụ Thể Tới 15/4
 
-- [ ] **Bước 1:** Đọc và in thử ra màn hình cái ruột của file `train_candid_paths.bin` chứa gì. Xem thử cấu trúc Array / Subgraph trong đó.
-- [ ] **Bước 2:** Chạy tệp `baseline.py` gốc 1 vòng để lấy lại ngưỡng Baseline cho cái GPU của cấu hình ta.
-- [ ] **Bước 3:** Thử lập hàm gọt rác (Pruning - Cắt cụt mảng `evidence` trước dòng tokenize). Xem Accuracy có hồi mã thương được bao nhiêu %.
-- [ ] **Bước 4:** Bắt tay viết lại class `Dataset / DataCollator` để chuyển rác String thành mảng Object (Ý tưởng Triples).
+- [ ] **Bước 1:** Chạy lại `baseline.py` gốc lấy kết quả tham chiếu làm Benchmark chính xác (Validation/Test Loss và Acc).
+- [ ] **Bước 2:** View lại ruột của `dev_candid_paths.bin`, bóc dữ liệu ra xem trực tiếp để dễ dàng code hàm Format/Verbalize.
+- [ ] **Bước 3:** Cắm logic cấu trúc hóa Verbalizer (Pha 2) vào đoạn `DataCollator` chạy nghiệm thu.
+- [ ] **Bước 4:** Xây dựng file Python/Colab mới chứa Mask Đồ Thị SAT áp dụng kỹ thuật Pha 3.

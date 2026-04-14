@@ -9,6 +9,7 @@ import torch.nn as nn
 from termcolor import colored
 from transformers import BertModel, AutoModel, AutoTokenizer, PreTrainedTokenizerBase, AutoConfig, AutoModel
 from preprocess import prepare_input
+from prune_candid_paths import prune_candids
 import os
 
 
@@ -21,6 +22,10 @@ parser.add_argument('--epoch', default=10, type=int, help='')
 # parser.add_argument('--db_name', default="", type=str, help='')
 parser.add_argument('--n_candid', default="3", type=str, help='')
 parser.add_argument('--scratch', action='store_true', help='')
+parser.add_argument('--prune_noise', action='store_true', help='Filter noisy candidate paths in memory before training')
+parser.add_argument('--train_candid_path', default="", type=str, help='Optional path to train candidate paths (.bin)')
+parser.add_argument('--dev_candid_path', default="", type=str, help='Optional path to dev candidate paths (.bin)')
+parser.add_argument('--test_candid_path', default="", type=str, help='Optional path to test candidate paths (.bin)')
 args = parser.parse_args()
 
 torch.manual_seed(42)
@@ -145,16 +150,30 @@ class DataCollator:
 data_path = args.data_path
 kg_path = args.kg_path
 
+def _resolve_candid_path(default_name, cli_path):
+    if cli_path:
+        return cli_path
+    return os.path.join(".", default_name)
+
+train_candid_path = _resolve_candid_path("train_candid_paths.bin", args.train_candid_path)
+dev_candid_path = _resolve_candid_path("dev_candid_paths.bin", args.dev_candid_path)
+test_candid_path = _resolve_candid_path(f"test_candid_paths_top{args.n_candid}.bin", args.test_candid_path)
+
 prepare_input(data_path, kg_path)
 
 with open(os.path.join(data_path, 'factkg_train.pickle'), 'rb') as pkf:
     db = pkl.load(pkf)
     print(f"Load train DB, # samples: {len(db)}")
 
-with open(f'./train_candid_paths.bin', 'rb') as pkf:
+with open(train_candid_path, 'rb') as pkf:
     candids = pkl.load(pkf)
-    print(f"Load train candids, # samples: {len(candids)}")
+    print(f"Load train candids from {train_candid_path}, # samples: {len(candids)}")
     
+if args.prune_noise:
+    from prune_candid_paths import prune_candids
+    candids = prune_candids(candids, top_connected=8, top_walkable=8, max_hops=3, hub_fragments=['type', 'category', 'subject', 'year', 'date', 'time', 'name', 'label'], keep_at_least_one=True)
+    print("Pruned train candids.")
+
 train_claims = list()
 train_evis = list()
 train_labels = list() 
@@ -169,9 +188,14 @@ with open(os.path.join(data_path, 'factkg_dev.pickle'), 'rb') as pkf:
     db = pkl.load(pkf)
     print(f"Load dev DB, # samples: {len(db)}")
 
-with open('./dev_candid_paths.bin', 'rb') as pkf:
+with open(dev_candid_path, 'rb') as pkf:
     candids = pkl.load(pkf)
-    print(f"Load dev candids, # samples: {len(candids)}")
+    print(f"Load dev candids from {dev_candid_path}, # samples: {len(candids)}")
+
+if args.prune_noise:
+    from prune_candid_paths import prune_candids
+    candids = prune_candids(candids, top_connected=8, top_walkable=8, max_hops=3, hub_fragments=['type', 'category', 'subject', 'year', 'date', 'time', 'name', 'label'], keep_at_least_one=True)
+    print("Pruned dev candids.")
 
 dev_claims = list()
 dev_evis = list()
@@ -187,9 +211,14 @@ with open(os.path.join(data_path, 'factkg_test.pickle'), 'rb') as pkf:
     db = pkl.load(pkf)
     print(f"Load Test DB, # samples: {len(db)}")
 
-with open(f'./test_candid_paths_top{args.n_candid}.bin', 'rb') as pkf:
+with open(test_candid_path, 'rb') as pkf:
     candids = pkl.load(pkf)
-    print(f"Load test candids, # samples: {len(candids)}")
+    print(f"Load test candids from {test_candid_path}, # samples: {len(candids)}")
+
+if args.prune_noise:
+    from prune_candid_paths import prune_candids
+    candids = prune_candids(candids, top_connected=8, top_walkable=8, max_hops=3, hub_fragments=['type', 'category', 'subject', 'year', 'date', 'time', 'name', 'label'], keep_at_least_one=True)
+    print("Pruned test candids.")
 
 test_claims = list()
 test_evis = list()

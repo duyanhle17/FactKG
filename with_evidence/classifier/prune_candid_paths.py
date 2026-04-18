@@ -1,49 +1,44 @@
+"""
+Phase 1.2 — Tail Trimming: chặt đuôi rác ở hop cuối nếu không liên quan Claim.
+Phase 1.3 — Sub-path Expansion: phân mảnh path dài thành các nhánh con để chống lọt lưới.
+"""
 import argparse
 import pickle
 import re
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Prune noisy candidate paths for FactKG classifier")
     parser.add_argument("--input_path", required=True, type=str, help="Input candid_paths .bin")
     parser.add_argument("--output_path", required=True, type=str, help="Output pruned candid_paths .bin")
-    parser.add_argument("--top_connected", default=8, type=int, help="Top connected paths kept per claim")
-    parser.add_argument("--top_walkable", default=8, type=int, help="Top walkable paths kept per claim")
     parser.add_argument("--max_hops", default=3, type=int, help="Drop paths above this hop length")
-    parser.add_argument(
-        "--hub_relations",
-        default="type,category,subject,year,date,time,name,label",
-        type=str,
-        help="Comma-separated relation fragments considered hub/noisy",
-    )
-    parser.add_argument("--keep_at_least_one", action="store_true", help="Keep one best path even if score <= 0")
     return parser.parse_args()
 
 
+# ============================================================
+# Utility helpers
+# ============================================================
+
 def norm_text(text: str) -> str:
+    """Normalise a KG string for token comparison."""
     text = text.replace("_", " ")
     text = text.lower()
     return text
 
 
-def tokenize(text: str) -> List[str]:
-    return re.findall(r"[a-z0-9]+", norm_text(text))
+def tokenize(text: str) -> set:
+    """Extract lowercase alphanumeric tokens from text."""
+    return set(re.findall(r"[a-z0-9]+", norm_text(text)))
 
 
 def path_hops(path: List[str]) -> int:
+    """Count the number of hops in a path [E, R, E, R, E, ...]."""
     return max((len(path) - 1) // 2, 0)
 
 
-def relation_tokens(path: List[str]) -> List[str]:
-    return path[1::2] if len(path) >= 2 else []
-
-
-def node_tokens(path: List[str]) -> List[str]:
-    return path[0::2] if len(path) >= 1 else []
-
-
 def deduplicate_paths(paths: List[List[str]]) -> List[List[str]]:
+    """Remove exact-duplicate paths."""
     seen = set()
     out = []
     for p in paths:
@@ -54,83 +49,100 @@ def deduplicate_paths(paths: List[List[str]]) -> List[List[str]]:
     return out
 
 
-def score_path(path: List[str], claim_token_set: set, hub_fragments: List[str]) -> float:
-    nodes = " ".join(node_tokens(path))
-    rels = " ".join(relation_tokens(path))
+# ============================================================
+# Phase 1.2 — Tail Trimming
+# ============================================================
 
-    node_tok = set(tokenize(nodes))
-    rel_tok = set(tokenize(rels))
+def trim_tail(path: List[str], claim_tokens: set) -> List[str]:
+    """
+    Repeatedly chop off the last hop (Relation + Entity) if neither the
+    last relation nor the last entity shares any token with the claim.
+    Stops when the path is down to 1-hop or the tail is relevant.
 
-    overlap_nodes = len(node_tok & claim_token_set)
-    overlap_rels = len(rel_tok & claim_token_set)
+    Example:
+        path = [E0, R1, E1, R2, E2, R3, E3]
+        If tokenize(R3) ∩ claim_tokens == ∅  AND  tokenize(E3) ∩ claim_tokens == ∅:
+            -> trim to [E0, R1, E1, R2, E2]
+        Repeat check on the new tail.
+    """
+    while path_hops(path) > 1:
+        # Last entity and last relation
+        last_entity = path[-1]
+        last_relation = path[-2]
+        tail_tokens = tokenize(last_entity) | tokenize(last_relation)
+        if tail_tokens & claim_tokens:
+            # Tail is relevant — stop trimming
+            break
+        # Chop the last hop (2 elements: relation + entity)
+        path = path[:-2]
+    return path
 
-    hub_penalty = 0.0
-    for rel in relation_tokens(path):
-        rel_norm = norm_text(rel)
-        if any(hf in rel_norm for hf in hub_fragments):
-            hub_penalty += 0.5
 
-    # Prefer claim-linked nodes, then relations, then shorter paths.
-    return 1.5 * overlap_nodes + 1.0 * overlap_rels - 0.1 * path_hops(path) - hub_penalty
+# ============================================================
+# Phase 1.3 — Sub-path Expansion
+# ============================================================
 
+def expand_subpaths(path: List[str]) -> List[List[str]]:
+    """
+    Given a path [E0, R1, E1, R2, E2, ...], generate ALL sub-paths
+    starting from E0:
+        [E0, R1, E1]
+        [E0, R1, E1, R2, E2]
+        [E0, R1, E1, R2, E2, R3, E3]   (= original)
+
+    This ensures that even if the full path is too noisy for BERT,
+    a shorter prefix containing the key evidence is still available.
+    """
+    subpaths = []
+    hops = path_hops(path)
+    for h in range(1, hops + 1):
+        end_idx = 1 + h * 2  # E0 + h*(R+E) = 1 + 2h elements
+        subpaths.append(path[:end_idx])
+    return subpaths
+
+
+# ============================================================
+# Orchestration
+# ============================================================
 
 def prune_group(
     paths: List[List[str]],
-    claim_token_set: set,
-    top_k: int,
+    claim_tokens: set,
     max_hops: int,
-    hub_fragments: List[str],
-    keep_at_least_one: bool,
 ) -> List[List[str]]:
-    if top_k <= 0:
-        return []
+    """Apply tail-trimming, sub-path expansion, hop filter, and dedup."""
+    result = []
+    for p in paths:
+        # Skip paths that are too long even before trimming
+        if path_hops(p) > max_hops:
+            continue
+        # Phase 1.2 — trim irrelevant tail
+        trimmed = trim_tail(p, claim_tokens)
+        # Phase 1.3 — expand into sub-paths (includes the trimmed path itself)
+        subs = expand_subpaths(trimmed)
+        result.extend(subs)
 
-    deduped = deduplicate_paths(paths)
-    filtered = [p for p in deduped if path_hops(p) <= max_hops]
-
-    scored: List[Tuple[float, List[str]]] = []
-    for p in filtered:
-        scored.append((score_path(p, claim_token_set, hub_fragments), p))
-
-    scored.sort(key=lambda x: x[0], reverse=True)
-
-    kept = [p for s, p in scored if s > 0][:top_k]
-    if keep_at_least_one and not kept and scored:
-        kept = [scored[0][1]]
-
-    return kept
+    # Deduplicate after expansion
+    return deduplicate_paths(result)
 
 
 def prune_candids(
     candids: Dict[str, Dict[str, List[List[str]]]],
-    top_connected: int,
-    top_walkable: int,
-    max_hops: int,
-    hub_fragments: List[str],
-    keep_at_least_one: bool,
+    max_hops: int = 3,
+    **_kwargs,  # accept legacy kwargs without crashing
 ):
+    """
+    Main entry point.  For each claim, prune its connected and walkable
+    candidate paths using tail-trimming + sub-path expansion.
+    """
     output = {}
     for claim, item in candids.items():
-        claim_token_set = set(tokenize(claim))
+        claim_tokens = tokenize(claim)
         connected = item.get("connected", [])
         walkable = item.get("walkable", [])
 
-        pruned_connected = prune_group(
-            connected,
-            claim_token_set,
-            top_connected,
-            max_hops,
-            hub_fragments,
-            keep_at_least_one,
-        )
-        pruned_walkable = prune_group(
-            walkable,
-            claim_token_set,
-            top_walkable,
-            max_hops,
-            hub_fragments,
-            keep_at_least_one,
-        )
+        pruned_connected = prune_group(connected, claim_tokens, max_hops)
+        pruned_walkable = prune_group(walkable, claim_tokens, max_hops)
 
         output[claim] = {
             "connected": pruned_connected,
@@ -141,7 +153,6 @@ def prune_candids(
 
 def main():
     args = parse_args()
-    hub_fragments = [x.strip().lower() for x in args.hub_relations.split(",") if x.strip()]
 
     with open(args.input_path, "rb") as f:
         candids = pickle.load(f)
@@ -149,14 +160,7 @@ def main():
     if not isinstance(candids, dict):
         raise ValueError("Expected dict format: claim -> {connected, walkable}")
 
-    pruned = prune_candids(
-        candids,
-        top_connected=args.top_connected,
-        top_walkable=args.top_walkable,
-        max_hops=args.max_hops,
-        hub_fragments=hub_fragments,
-        keep_at_least_one=args.keep_at_least_one,
-    )
+    pruned = prune_candids(candids, max_hops=args.max_hops)
 
     with open(args.output_path, "wb") as f:
         pickle.dump(pruned, f)

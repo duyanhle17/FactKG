@@ -6,15 +6,58 @@ from termcolor import colored
 from tqdm.auto import tqdm
 import os
 
+# ============================================================
+# Phase 1.1 — Relation Blacklist & Super-Node Detection
+# ============================================================
+# Relations that only reflect Wikipedia page structure, not facts.
+RELATION_BLACKLIST = [
+    "wikiPageWikiLink",
+    "wikiPageRedirects",
+    "wikiPageExternalLink",
+    "wasDerivedFrom",
+]
+
+SUPER_NODE_DEGREE_THRESHOLD = 2000
+
+
+def _clean_kg(raw_kg):
+    """Remove blacklisted relations from every entity in the KG dict using substring match."""
+    removed = 0
+    for entity in raw_kg:
+        # Substring match covers 'dbo:wikiPageWikiLink', '~wikiPage...', 'http://...', etc.
+        bad_rels = [r for r in raw_kg[entity] if any(bad in r for bad in RELATION_BLACKLIST)]
+        for r in bad_rels:
+            del raw_kg[entity][r]
+            removed += 1
+    print(f"[Phase 1.1] Removed {removed} blacklisted relation entries from KG.")
+    return raw_kg
+
+
+def _find_super_nodes(raw_kg, threshold=SUPER_NODE_DEGREE_THRESHOLD):
+    """Identify entities whose total edge count exceeds the threshold."""
+    super_nodes = set()
+    for entity in raw_kg:
+        degree = sum(len(tails) for tails in raw_kg[entity].values())
+        if degree > threshold:
+            super_nodes.add(entity)
+    print(f"[Phase 1.1] Detected {len(super_nodes)} super-nodes (degree > {threshold}).")
+    return super_nodes
+
+
 class KG():
-    def __init__(self, kg):
+    def __init__(self, kg, super_nodes=None, claim_entities=None):
         super().__init__()
         self.kg = kg
+        self.super_nodes = super_nodes if super_nodes is not None else set()
+        # claim_entities is set per-search call, not at init
+        self.claim_entities = claim_entities if claim_entities is not None else set()
         
-    def search(self, ents, rels):
+    def search(self, ents, rels, claim_text=""):
         connected = list()
         walkable = list()
         seen = dict()
+        # Build a lowercased token set from claim text for super-node gating
+        self.claim_entities = set(e.lower().replace("_", " ") for e in ents)
         
         for e in ents:
             if e in rels:
@@ -54,6 +97,12 @@ class KG():
                 else:
                     if ts:
                         for t in ts:
+                            # Phase 1.1 — Block super-nodes unless they
+                            # are directly mentioned in the claim entities.
+                            if t in self.super_nodes:
+                                t_norm = t.lower().replace("_", " ")
+                                if t_norm not in self.claim_entities:
+                                    continue
                             updated_branches.append(branch+[t,])
             if len(updated_branches) <= len(branches):
                 return None, None
@@ -87,7 +136,10 @@ def prepare_input(data_path, kg_path):
 
     with open(kg_path, "rb") as pkf:
         raw_kg = pkl.load(pkf)
-    kg = KG(raw_kg)
+    # Phase 1.1 — Clean KG and detect super-nodes once
+    raw_kg = _clean_kg(raw_kg)
+    super_nodes = _find_super_nodes(raw_kg)
+    kg = KG(raw_kg, super_nodes=super_nodes)
 
     search_results = dict()
 
@@ -105,7 +157,7 @@ def prepare_input(data_path, kg_path):
 
     with open(os.path.join(data_path, 'factkg_dev.pickle'), "rb") as pkf:
         db = pkl.load(pkf)
-    kg_dev = KG(raw_kg)
+    kg_dev = KG(raw_kg, super_nodes=super_nodes)
 
     search_results = dict()
 
@@ -136,7 +188,7 @@ def prepare_input(data_path, kg_path):
         
     with open(os.path.join(data_path, 'factkg_test.pickle'), "rb") as pkf:
         db = pkl.load(pkf)
-    kg_test = KG(raw_kg)
+    kg_test = KG(raw_kg, super_nodes=super_nodes)
 
     search_results = dict()
 

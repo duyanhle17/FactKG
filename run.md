@@ -1,60 +1,61 @@
-# Hướng dẫn chạy FactKG (Tiếp cận có Evidence)
+# Hướng dẫn chạy FactKG (With Evidence)
 
-Cụm code đồ án FactKG được thiết kế chia làm 2 giai đoạn: **Retriever** (Mò mẫm tìm Node/Cạnh trên đồ thị) và **Classifier** (Mô hình phân loại độ thật-giả dựa trên Evidence).
-
-Dưới đây là các lệnh CMD cần thiết để chạy pipeline hoàn chỉnh từ đầu chí cuối:
+Dưới đây là chuỗi lệnh Terminal được căn chỉnh chính xác theo thứ tự và cấu trúc thư mục của dự án gốc. Vui lòng mở Terminal và **đứng tại thư mục gốc của project (FactKG/)** trước khi bắt đầu copy lần lượt các block code dưới đây.
 
 ---
 
-## Bước 1: Retriever (Trích xuất tri thức thô)
+### Bước 1: Trích xuất tri thức (Graph Retriever)
 
 **1. Tiền xử lý dữ liệu**
-Để tạo ra các file input phục vụ train Relation và Hop, hãy chạy lệnh sau:
+Chuyển hướng vào thư mục data của retriever và sinh input cho mô hình:
 ```bash
 cd with_evidence/retrieve/data
-python data_preprocess.py --data_directory_path ../../../data --output_directory_path ../model/
+python data_preprocess.py \
+    --data_directory_path <<<thư_mục_chứa_file_factkg_train_dev_test.pickle>>> \
+    --output_directory_path ../model/
 ```
 
-**2. Huấn luyện Model Đoán Relation (Relation Predictor)**
-Model này sẽ nhìn câu Claim để đoán ra top 3 cụm Relation có thể xuất hiện (VD: `birthPlace`).
+**2. Huấn luyện mô hình đoán Relation**
+Tiếp tục lùi một thư mục và vào phần module relation_predict:
 ```bash
 cd ../model/relation_predict
+
+# Train
 python main.py --mode train --config ../config/relation_predict_top3.yaml
-```
-Dự đoán ra file:
-```bash
-python main.py --mode eval --config ../config/relation_predict_top3.yaml --model_path <ĐƯỜNG_DẪN_TỚI_FILE_CKPT_VỪA_HỌC>
+
+# Eval (thay đường dẫn .ckpt tương ứng model vừa sinh ra ở folder logs)
+python main.py --mode eval --config ../config/relation_predict_top3.yaml --model_path <<<đường_dẫn_file_model.ckpt>>>
 ```
 
-**3. Huấn luyện Model Đoán số Hop (Hop Predictor)**
-Model này quyết định path của câu hỏi cần chĩa ra độ dài bao nhiêu (1, 2 hay 3 hop).
+**3. Huấn luyện mô hình đoán số Hop**
+Chuyển qua module đoán Hop nằm kế bên:
 ```bash
 cd ../hop_predict
+
+# Train
 python main.py --mode train --config ../config/hop_predict.yaml
-```
-Dự đoán ra file:
-```bash
+
+# Eval
 python main.py --mode eval --config ../config/hop_predict.yaml --model_path ./model.pth
 ```
 
 ---
 
-## Bước 2: Classifier (Phân loại thật giả + Module Chống Nhiễu)
+### Bước 2: Phân loại bằng Mô hình tối ưu chống nhiễu (Classifier)
 
-Đây là nơi kết nối mô hình BERT, tiếp nhận các Node của Bước 1, kích hoạt luồng **cắt đuôi rác Heuristic**, **Flatten** văn bản và đưa ra phán quyết.
-
-Để chạy Classifier với bộ code vừa nâng cấp tối ưu chống rác, luôn nhớ dập thẻ cờ `--prune_noise`:
-
+Lùi về lại thư mục gốc của khối code `with_evidence` và đi đến cụm `classifier`:
 ```bash
 cd ../../../classifier
+```
+
+Cuối cùng, khởi động quy trình **tìm đường chạy thuật toán nén nhiễu (Phase 1 Heuristic) và kết dính lại cấu trúc câu (Phase 2 Soft-flattening)** thông qua việc ép cờ dập rác `--prune_noise`:
+
+```bash
 python baseline.py \
-    --data_path "../../../data" \
-    --kg_path "../../../data/dbpedia_2015_undirected_light.pickle" \
+    --data_path <<<thư_mục_chứa_file_factkg_train_dev_test.pickle>>> \
+    --kg_path <<<đường_dẫn_chi_tiết_file_dbpedia_2015_undirected_light.pickle>>> \
     --prune_noise \
     --epoch 10
 ```
 
-> **Lưu ý:**
-> - Tham số `--data_path` trỏ tới thư mục chứa các file `factkg_train/dev/test.pickle`.
-> - Tham số `--kg_path` phải trỏ đúng tới file gốc DBpedia của hệ thống.
-> - Cờ `--prune_noise` sẽ tự động kích hoạt Phase 1 & Phase 2 mà chúng ta vừa update ở `prune_candid_paths.py` và `baseline.py`.
+> **Lưu ý đặc biệt:** Luôn nhớ thay thế các đoạn chữ nằm bọc trong dấu `<<<...>>>` thành **Đường dẫn thư mục thực tế** (Absolute Path / Relative Path chuẩn) trên máy bạn trước khi dập Enter.

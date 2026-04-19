@@ -109,7 +109,7 @@ class FactKGRelationClassifier(pl.LightningModule):
           },
       ]
 
-      optimizer = torch.optim.Adam(
+      optimizer = torch.optim.AdamW(
           grouped_params,
           lr=self.learning_rate, 
       )

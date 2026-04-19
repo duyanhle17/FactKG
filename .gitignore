@@ -1,0 +1,11 @@
+
+# Data and checkpoitns
+*.pkl
+*.ckpt
+*.pth
+*.bin
+*.json
+__pycache__/
+lightning_logs/
+predictions_hop.json
+test_relations_top3.json

@@ -11,11 +11,11 @@ class FactkGDataset(Dataset):
 
     def __getitem__(self, index):
         sentence1 = self.df_data.loc[index, 'inputs']
-        encoded_dict = self.tokenizer.encode_plus(
+        encoded_dict = self.tokenizer(
                     sentence1,
                     add_special_tokens = True,      
                     max_length = 256,           
-                    pad_to_max_length = True,
+                    padding = 'max_length',
                     truncation=True,
                     return_attention_mask = True,   
                     return_tensors = 'pt',          
@@ -41,11 +41,11 @@ class FactKGTestDataset(Dataset):
     def __getitem__(self, index):
         sentence1 = self.df_data.loc[index, 'inputs']
 
-        encoded_dict = self.tokenizer.encode_plus(
+        encoded_dict = self.tokenizer(
                     sentence1, 
                     add_special_tokens = True,      
                     max_length = 256,           
-                    pad_to_max_length = True,
+                    padding = 'max_length',
                     return_attention_mask = True,   
                     truncation=True,
                     return_tensors = 'pt',          

@@ -8,6 +8,18 @@ import argparse
 import yaml
 
 
+def _build_trainer(max_epochs=None):
+    use_gpu = torch.cuda.is_available()
+    trainer_kwargs = {
+        "accelerator": "gpu" if use_gpu else "cpu",
+        "devices": 1,
+        "precision": "16-mixed" if use_gpu else "32-true",
+    }
+    if max_epochs is not None:
+        trainer_kwargs["max_epochs"] = max_epochs
+    return pl.Trainer(**trainer_kwargs)
+
+
 def load_data_from_yaml(yaml_file_path):
     with open(yaml_file_path, 'r') as f:
         config = yaml.safe_load(f)
@@ -34,12 +46,7 @@ def trainer(data,relation_set, model_name, eval_batch_size,train_batch_size,max_
     _model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=len(relation_set), problem_type="multi_label_classification")
     model = FactKGRelationClassifier(relation_set, _model,top_k, learning_rate=5e-5)
 
-    trainer = pl.Trainer(
-        precision=16,
-        accelerator="gpu",
-        max_epochs=max_epoch,
-        gpus=1,
-    )
+    trainer = _build_trainer(max_epochs=max_epoch)
     trainer.fit(model, relation_data_module) 
     
 
@@ -59,11 +66,7 @@ def evaluator(data,relation_set, model_name, eval_batch_size,train_batch_size,ma
     )
 
     # Test the model
-    trainer = pl.Trainer(
-        precision=16,
-        accelerator="gpu",
-        gpus=1,
-    )
+    trainer = _build_trainer()
     trainer.test(model, datamodule=relation_data_module)
 
 def define_argparser():

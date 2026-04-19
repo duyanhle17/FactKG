@@ -15,6 +15,8 @@ class FactKGRelationClassifier(pl.LightningModule):
     self.model = model
     self.top_k=top_k
     self.learning_rate = learning_rate
+    self.validation_step_outputs = []
+    self.test_step_outputs = []
 
 
   def forward(self, batch):
@@ -29,16 +31,22 @@ class FactKGRelationClassifier(pl.LightningModule):
     return {"loss": loss}
     
   def validation_step(self, batch, batch_idx):
-    return self._evaluation_step(batch) 
+    output = self._evaluation_step(batch)
+    self.validation_step_outputs.append(output)
+    return output
 
-  def validation_epoch_end(self, outputs):
-    self._evaluation_epoch_end(outputs, phase='test')
+  def on_validation_epoch_end(self):
+    self._evaluation_epoch_end(self.validation_step_outputs, phase='test')
+    self.validation_step_outputs.clear()
 
   def test_step(self, batch, batch_idx):
-    return self._evaluation_step_eval(batch) 
+    output = self._evaluation_step_eval(batch)
+    self.test_step_outputs.append(output)
+    return output
 
-  def test_epoch_end(self, outputs):
-    self._evaluation_epoch_end_eval(outputs, phase='test')
+  def on_test_epoch_end(self):
+    self._evaluation_epoch_end_eval(self.test_step_outputs, phase='test')
+    self.test_step_outputs.clear()
 
   def _evaluation_step(self, batch):
     loss, logits = self.forward(batch)
@@ -79,14 +87,12 @@ class FactKGRelationClassifier(pl.LightningModule):
     sentences = [text.split('[sep]')[0] for text in input_texts]
     entities = [text.split('[sep]')[1] for text in input_texts]
     return {
-        "logits": logits,
         "prs": prs,
         "sentences": sentences,
         "entities":entities
     }
 
   def _evaluation_epoch_end_eval(self, outputs, phase=None):
-    logits = [x["logits"] for x in outputs]
     prs = reduce(lambda x,y: x + y, [x["prs"] for x in outputs], [])
     #import pdb; pdb.set_trace()
     sentences = reduce(lambda x,y: x + y, [x["sentences"] for x in outputs], [])
@@ -103,7 +109,7 @@ class FactKGRelationClassifier(pl.LightningModule):
           },
       ]
 
-      optimizer = torch.optim.AdamW(
+      optimizer = torch.optim.Adam(
           grouped_params,
           lr=self.learning_rate, 
       )

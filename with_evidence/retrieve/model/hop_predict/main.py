@@ -14,7 +14,7 @@ def train(config, device):
     train_data, val_data, _ = create_datasets(config['train_data_path'], config['dev_data_path'], config['test_data_path'],config['model_name'])
     train_dataloader = DataLoader(train_data, batch_size=config['TRAIN_BATCH_SIZE'], shuffle=True, num_workers=os.cpu_count())
     val_dataloader = DataLoader(val_data, batch_size=config['VAL_BATCH_SIZE'], shuffle=True, num_workers=os.cpu_count())
-    model_manager = HopPredictorManager(config["model_name"], 3, config["LEARNING_RATE"], device)
+    model_manager = HopPredictorManager(config["model_name"], config.get("num_labels", 5), config["LEARNING_RATE"], device)
     for epoch in range(config["NUM_EPOCHS"]):
         print(f'======== Epoch {epoch+1} / {config["NUM_EPOCHS"]} ========')
         print('Training...')
@@ -30,7 +30,7 @@ def evaluate(config, model_path, device):
     print('Evaluating...')
     _, _, test_data = create_datasets(config['train_data_path'], config['dev_data_path'], config['test_data_path'],config['model_name'])
     test_dataloader = DataLoader(test_data, batch_size=config['TEST_BATCH_SIZE'], shuffle=False, num_workers=os.cpu_count())
-    model_manager = HopPredictorManager(config["model_name"], 3, config["LEARNING_RATE"], device)
+    model_manager = HopPredictorManager(config["model_name"], config.get("num_labels", 5), config["LEARNING_RATE"], device)
     model_manager.load_model(model_path)
     sentences, predictions = model_manager.predict(test_dataloader, device)
     claims_dict = {str(index): claim for index, claim in enumerate(sentences)}

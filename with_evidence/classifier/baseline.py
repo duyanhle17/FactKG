@@ -10,49 +10,41 @@ import torch.nn as nn
 from termcolor import colored
 from transformers import BertModel, AutoModel, AutoTokenizer, PreTrainedTokenizerBase, AutoConfig, AutoModel
 from preprocess import prepare_input
-from prune_candid_paths import prune_candids
+# [DISABLED] Phase 1.2/1.3 pruning — tạm ẩn để test 5-hop trên code gốc
+# from prune_candid_paths import prune_candids
 import os
 
 
 # ============================================================
-# Phase 2 — Soft Flatten Utilities
+# [DISABLED] Phase 2 — Soft Flatten Utilities
+# Tạm ẩn để test 5-hop trên code gốc FactKG
 # ============================================================
 
-def clean_kg_text(text: str) -> str:
-    """Clean a KG entity or relation string for BERT.
-    - Remove DBpedia prefixes (dbo:, dbp:)
-    - Replace underscores with spaces
-    - Split CamelCase: birthPlace -> birth Place -> birth place
-    - Remove Wikipedia parenthetical disambiguators: Washington_(state) -> Washington
-    """
-    text = text.replace("dbo:", "").replace("dbp:", "")
-    # Remove parenthetical disambiguation e.g. _(state), _(company)
-    text = re.sub(r'_?\([^)]*\)', '', text)
-    text = text.replace("_", " ")
-    # Split CamelCase: birthPlace -> birth Place
-    text = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', text)
-    # Remove leading ~ (reverse relation marker) for display
-    text = text.lstrip("~")
-    return text.strip()
-
-
-def soft_flatten_path(path: list) -> str:
-    """Convert a raw KG path into a clean, lightly formatted string.
-    
-    Example:
-        ['Barack_Obama', 'birthPlace', 'Honolulu', 'locatedIn', 'Hawaii']
-        -> 'Barack Obama birth Place Honolulu . Honolulu located In Hawaii'
-    
-    Each hop (Entity-Relation-Entity triple) is separated by ' . '
-    """
-    cleaned = [clean_kg_text(x) for x in path]
-    hops = []
-    for i in range(0, len(cleaned) - 2, 2):
-        subj = cleaned[i]
-        rel = cleaned[i + 1]
-        obj = cleaned[i + 2]
-        hops.append(f"{subj} {rel} {obj}")
-    return " . ".join(hops) if hops else " ".join(cleaned)
+# def clean_kg_text(text: str) -> str:
+#     """Clean a KG entity or relation string for BERT.
+#     - Remove DBpedia prefixes (dbo:, dbp:)
+#     - Replace underscores with spaces
+#     - Split CamelCase: birthPlace -> birth Place -> birth place
+#     - Remove Wikipedia parenthetical disambiguators: Washington_(state) -> Washington
+#     """
+#     text = text.replace("dbo:", "").replace("dbp:", "")
+#     text = re.sub(r'_?\([^)]*\)', '', text)
+#     text = text.replace("_", " ")
+#     text = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', text)
+#     text = text.lstrip("~")
+#     return text.strip()
+#
+#
+# def soft_flatten_path(path: list) -> str:
+#     """Convert a raw KG path into a clean, lightly formatted string."""
+#     cleaned = [clean_kg_text(x) for x in path]
+#     hops = []
+#     for i in range(0, len(cleaned) - 2, 2):
+#         subj = cleaned[i]
+#         rel = cleaned[i + 1]
+#         obj = cleaned[i + 2]
+#         hops.append(f"{subj} {rel} {obj}")
+#     return " . ".join(hops) if hops else " ".join(cleaned)
 
 
 parser = argparse.ArgumentParser()
@@ -115,21 +107,19 @@ class Dataset(torch.utils.data.Dataset):
             else:
                 raise ValueError()
 
-            # Phase 2 — Soft Flatten: convert each path to clean text
-            conn_text = " | ".join([soft_flatten_path(c) for c in self.evis[i][0]])
-            walk_text = " | ".join([soft_flatten_path(c) for c in self.evis[i][1]])
+            # [ORIGINAL] Ghép evidence bằng sep_token gốc FactKG
+            flat_evi = list(chain(*self.evis[i][0])) + list(chain(*self.evis[i][1]))
             sample = {
-                "e": (conn_text, walk_text),
+                "e": flat_evi,
                 "c":self.claims[i],
                 "l":self.labels[i],
                 "type":rtype,
             }
         else:
-            # Phase 2 — Soft Flatten: convert each path to clean text
-            conn_text = " | ".join([soft_flatten_path(c) for c in self.evis[i][0]])
-            walk_text = " | ".join([soft_flatten_path(c) for c in self.evis[i][1]])
+            # [ORIGINAL] Ghép evidence bằng sep_token gốc FactKG
+            flat_evi = list(chain(*self.evis[i][0])) + list(chain(*self.evis[i][1]))
             sample = {
-                "e": (conn_text, walk_text),
+                "e": flat_evi,
                 "c":self.claims[i],
                 "l":self.labels[i],
             }
@@ -217,10 +207,11 @@ with open(train_candid_path, 'rb') as pkf:
     candids = pkl.load(pkf)
     print(f"Load train candids from {train_candid_path}, # samples: {len(candids)}")
     
-if args.prune_noise:
-    from prune_candid_paths import prune_candids
-    candids = prune_candids(candids, max_hops=3)
-    print("Pruned train candids.")
+# [DISABLED] Phase 1.2/1.3 pruning — tạm ẩn để test 5-hop trên code gốc
+# if args.prune_noise:
+#     from prune_candid_paths import prune_candids
+#     candids = prune_candids(candids, max_hops=3)
+#     print("Pruned train candids.")
 
 train_claims = list()
 train_evis = list()
@@ -240,10 +231,11 @@ with open(dev_candid_path, 'rb') as pkf:
     candids = pkl.load(pkf)
     print(f"Load dev candids from {dev_candid_path}, # samples: {len(candids)}")
 
-if args.prune_noise:
-    from prune_candid_paths import prune_candids
-    candids = prune_candids(candids, max_hops=3)
-    print("Pruned dev candids.")
+# [DISABLED] Phase 1.2/1.3 pruning — tạm ẩn để test 5-hop trên code gốc
+# if args.prune_noise:
+#     from prune_candid_paths import prune_candids
+#     candids = prune_candids(candids, max_hops=3)
+#     print("Pruned dev candids.")
 
 dev_claims = list()
 dev_evis = list()
@@ -263,10 +255,11 @@ with open(test_candid_path, 'rb') as pkf:
     candids = pkl.load(pkf)
     print(f"Load test candids from {test_candid_path}, # samples: {len(candids)}")
 
-if args.prune_noise:
-    from prune_candid_paths import prune_candids
-    candids = prune_candids(candids, max_hops=3)
-    print("Pruned test candids.")
+# [DISABLED] Phase 1.2/1.3 pruning — tạm ẩn để test 5-hop trên code gốc
+# if args.prune_noise:
+#     from prune_candid_paths import prune_candids
+#     candids = prune_candids(candids, max_hops=3)
+#     print("Pruned test candids.")
 
 test_claims = list()
 test_evis = list()

@@ -415,3 +415,59 @@ python baseline.py \
 | One-hop | 75.76% | 75~77% | 76~78% |
 | **Multi-hop** | **61.42%** | **65~68%** | **68~72%** |
 
+---
+
+## 5. Báo Cáo 6/5: Phân Tích Kết Quả Chạy 5-Hop & Giải Pháp Đột Phá Cho Multi-hop
+
+**Kết quả thực tế đo được:**
+- **One-hop (Type 0):** `0.8281` (Tăng mạnh so với mốc 75.76%)
+- **Multi-hop (Type 1):** `0.6457` (Tăng nhẹ từ 61.42% lên 64.57%, NHƯNG CHƯA ĐẠT KỲ VỌNG)
+- **Conjunction (Type 2):** `0.7960` (Giảm nhẹ so với 79.99%)
+- **Existence (Type 3):** `0.8816` (Tăng tốt so với 84.02%)
+- **Negation (Type 4):** `0.7610` (Giảm so với 79.98%)
+- **Total Test Acc:** `0.7748`
+
+### 5.1. Lý giải: Tại sao huấn luyện 5-hop gần như không cải thiện Multi-hop?
+
+Dù chúng ta kỳ vọng việc cấp cho mô hình các đường dẫn dài (5-hop) sẽ giúp nó giải quyết các câu hỏi phức tạp tốt hơn, nhưng thực tế mức tăng lại rất khiêm tốn (+3% và chưa đột phá). Nguyên nhân cốt lõi bao gồm:
+
+1. **Hiệu ứng "Bùng nổ nhiễu" (Noise Amplification):** 
+   - Khi tăng độ sâu lên 5 bước nhảy, số lượng candidate paths sinh ra từ thuật toán BFS trên Knowledge Graph tăng theo cấp số nhân. 
+   - Một câu hỏi thực chất chỉ cần 2-3 hop nhưng lại bị ghép kèm hàng loạt path 5-hop không liên quan. Các path rác này làm loãng tín hiệu của path đúng, khiến Classifier (BERT) bị "ngợp" thông tin.
+2. **Giới hạn 512 Tokens của BERT:** 
+   - Khi nối (concat) quá nhiều đường dẫn 5-hop lại với nhau, tổng số token dễ dàng vượt qua giới hạn độ dài `max_length = 512` của mô hình BERT.
+   - Hệ quả là BERT sẽ cắt bỏ (truncate) phần đuôi của chuỗi văn bản. Rất có thể phần bị cắt đi lại chứa chính evidence quan trọng nhất, khiến mô hình không có đủ thông tin để kết luận, do đó độ chính xác không thể tăng thêm.
+3. **Đặc thù dữ liệu Multi-hop của tập FactKG:**
+   - Đa số câu hỏi được phân loại là "multi-hop" trong tập FactKG thực chất chỉ đòi hỏi 2 hoặc 3 bước suy luận. Các câu hỏi thực sự cần đến 4 hoặc 5 bước là cực kỳ hiếm. Việc ép mô hình phải duyệt 5-hop cho toàn bộ tập dữ liệu là sự lãng phí tài nguyên và rước thêm nhiễu không đáng có.
+4. **Hạn chế của kiến trúc Classifier (`ConcatClassifier`) hiện tại:**
+   - Hệ thống hiện tại chỉ nối toàn bộ chuỗi văn bản và dùng token `[CLS]` để phân loại. Việc đọc một chuỗi dài dằng dặc các entity và relation lộn xộn khiến mô hình mất khả năng "chú ý" (focus) vào các kết nối logic hẹp. Càng đưa nhiều path dài, `[CLS]` càng dễ mất phương hướng.
+
+### 5.2. Các hướng cải tiến Đột Phá cho Multi-hop
+
+Vì phương pháp "nhồi nhét" đường dẫn dài đã chạm ngưỡng (hiệu năng đi ngang), ta cần chuyển sang hướng **Tinh lọc (Precision)** và **Cấu trúc hóa (Structuring)**. Dưới đây là các nâng cấp cần thiết nhất lúc này:
+
+#### 🌟 Cải tiến 1: Re-ranking & Filtering (Lọc đường dẫn trước khi phân loại - Quan trọng nhất)
+Không phải path nào cũng có giá trị. Thay vì ném tất cả path sinh ra cho BERT, ta cần một bộ lọc thô.
+- **Cách làm:** Tính độ tương đồng (Similarity) giữa chuỗi câu hỏi (Claim) và từng đường dẫn (Path) - có thể dùng token overlap (như Chiến lược A ở mục 4.1) hoặc dùng một mô hình Sentence-BERT tính Cosine Similarity.
+- **Hành động:** Sau khi sinh ra hàng chục path 5-hop, **chỉ giữ lại Top 3 - 5 đường dẫn có điểm số liên quan cao nhất** để đưa vào Classifier. Điều này giải quyết triệt để vấn đề nhiễu rác và giới hạn 512 token.
+
+#### 🌟 Cải tiến 2: Phân tách Context thay vì Concat (Kiến trúc Cross-Attention / GEAR)
+Đừng nối tất cả đường dẫn thành một đoạn văn duy nhất. Hãy cho BERT đánh giá mức độ đúng/sai của *từng đường dẫn* một cách độc lập.
+- **Cách làm:** Đưa qua BERT theo từng cặp: `[CLS] Claim [SEP] Path 1 [SEP]`, `[CLS] Claim [SEP] Path 2 [SEP]`, v.v... Lấy embedding của từng path rồi dùng thuật toán Attention (hoặc Max-Pooling) để tổng hợp lại.
+- **Lợi ích:** Mô hình không bao giờ bị tràn token và nó có thể xác định rõ ràng path nào là bằng chứng thực sự dẫn đến kết quả. (Đây là nền tảng của kiến trúc GEAR).
+
+#### 🌟 Cải tiến 3: Adaptive Hop Retrieval (Số bước nhảy linh hoạt)
+Tuyệt đối không cố định tìm 5-hop cho tất cả câu hỏi.
+- **Cách làm:** Phụ thuộc hoàn toàn vào kết quả của mô hình *Hop Predictor*. Nếu Hop Predictor dự đoán câu hỏi là 2-hop, BFS chỉ tìm tối đa 2-hop. Nếu đoán 3-hop, tìm 3. (Đây chính là Chiến lược B ở mục 4.2).
+- **Lợi ích:** Giữ nguyên hiệu năng cực tốt của One-hop (82%) và Existence (88%) do không bị chèn thêm nhiễu, đồng thời cung cấp đủ path cho các câu hỏi đa bước thực sự.
+
+#### 🌟 Cải tiến 4: Verbalization ("Mềm hóa" đường dẫn)
+Đường dẫn dạng thô `Entity A -> relation -> Entity B -> relation -> Entity C` rất thiếu tự nhiên.
+- **Cách làm:** Viết một hàm verbalizer chuyển đổi đường dẫn thành câu văn trôi chảy (Soft Flattening). Ngôn ngữ tự nhiên hơn sẽ giúp mô hình BERT pre-trained phát huy tối đa khả năng suy luận logic thay vì bị bối rối bởi các dấu phẩy hay ký tự gạch dưới `_`.
+
+---
+**Kết luận:** 
+Điểm số One-hop và Existence trong bài test này đã lên rất ấn tượng (lần lượt 82.8% và 88.1%), minh chứng rõ ràng rằng baseline hiện tại học các suy luận nông cực kỳ xuất sắc. Việc Multi-hop bị "nghẽn" ở mức 64% khẳng định rằng **tăng độ sâu BFS (lên 5) sinh ra quá nhiều nhiễu, làm mờ đi tín hiệu đúng**. 
+
+Để bức phá, nhiệm vụ tiếp theo không phải là mở rộng tìm kiếm, mà là **LỌC (Re-rank) đường dẫn** (Cải tiến 1) và **Xử lý linh hoạt theo số Hop** (Cải tiến 3).
+

@@ -108,7 +108,7 @@ class KG():
 def prepare_input(data_path, kg_path):
     predicted_rs = list()
 
-    with open("../retrieve/model/relation_predict/test_relations_top3.json") as jsf:
+    with open("../retrieve/model/relation_predict/test_relations_top5.json") as jsf:
         js = json.load(jsf)
             
     for idx in js["claims"]:
@@ -158,7 +158,7 @@ def prepare_input(data_path, kg_path):
 
     predicted_rs = dict()
 
-    with open("../retrieve/model/relation_predict/test_relations_top3.json") as jsf:
+    with open("../retrieve/model/relation_predict/test_relations_top5.json") as jsf:
         js = json.load(jsf)
             
     for idx in js["claims"]:
@@ -190,5 +190,5 @@ def prepare_input(data_path, kg_path):
 
     assert len(search_results)==len(db)
     
-    with open("./test_candid_paths_top3.bin", "wb") as pkf:
+    with open("./test_candid_paths_top5.bin", "wb") as pkf:
         pkl.dump(search_results, pkf)

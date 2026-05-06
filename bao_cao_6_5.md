@@ -45,9 +45,31 @@ Kết quả cho thấy việc tăng từ Top-3 lên Top-5 relations mang lại h
 * **Lượt 2 (3-hop + Top-5):** Tìm được điểm cân bằng lý tưởng. Không gian tìm kiếm rộng hơn giúp tăng Recall (khả năng tìm thấy đường đi đúng), trong khi độ sâu 3-hop giúp giữ cho ngữ cảnh đầu vào không bị quá tải bởi nhiễu từ các node xa lạ.
 
 ### 3.4. Định Hướng Tiếp Theo
-Từ thành công của cấu hình 3-hop Top-5, các bước tiếp theo nên tập trung vào:
-1. **Re-ranking:** Lọc bỏ các đường dẫn nhiễu trong số Top-5 trước khi đưa vào Classifier để tối ưu hóa giới hạn 512 token.
-2. **Adaptive Hop:** Linh hoạt số lượng relation dựa trên độ khó của câu hỏi (dự đoán từ Hop Predictor).
+Từ thành công của cấu hình 3-hop Top-5 (hiệu suất tổng 81.8%), hệ thống đã giải quyết tốt các suy luận nông. Tuy nhiên, **Multi-hop (68.8%) vẫn là điểm nghẽn lớn nhất**. Dưới đây là 4 định hướng cụ thể được chia thành các nhóm ưu tiên để giải quyết triệt để vấn đề này:
+
+#### Nhóm 1: Tối Ưu Hóa Tầng Lọc Evidence (Ngắn hạn - Triển khai ngay)
+
+**1. Claim-Aware Path Re-Ranking (Ưu tiên cao nhất)**
+*   **Vấn đề:** BFS với Top-5 relations sinh ra hàng chục đường dẫn (path) 3-hop. Tất cả được ghép vào BERT khiến path đúng bị "chìm" giữa path rác, và dễ bị BERT cắt ngắn (truncate) do quá giới hạn 512 token.
+*   **Kỹ thuật:** Xây dựng hàm scoring (chấm điểm) tính độ giao thoa token (Token Overlap) hoặc dùng Sentence-BERT để đo độ tương đồng cosine giữa chuỗi câu hỏi (Claim) và từng đường dẫn. Chỉ giữ lại Top 3 - 5 đường dẫn có điểm số cao nhất trước khi đưa vào mô hình phân loại.
+*   **Mục đích:** Loại bỏ triệt để path rác do BFS tổ hợp tạo ra, đảm bảo phần evidence đưa vào BERT chứa thông tin quan trọng nhất. Giữ vững điểm one-hop và tăng mạnh điểm multi-hop.
+
+**2. Adaptive Top-K (Lựa chọn candidate linh hoạt theo độ sâu)**
+*   **Vấn đề:** Hiện tại `n_candid` đang cố định (ví dụ luôn lấy Top-5). Với câu hỏi 1-hop, việc lấy 5 relation sẽ mang thêm nhiễu không cần thiết.
+*   **Kỹ thuật:** Dựa vào dự đoán của Hop Predictor để điều chỉnh `top_k` động: câu hỏi 1-hop chỉ cần lấy Top-3, câu hỏi 3-hop trở lên mới mở rộng ra Top-5.
+*   **Mục đích:** Tối ưu hóa tài nguyên và tăng Recall cho các câu hỏi đa bước (multi-hop) mà không chèn thêm nhiễu vào các câu hỏi đơn bước (one-hop).
+
+#### Nhóm 2: Cải Tiến Kiến Trúc Mô Hình (Trung hạn)
+
+**3. GEAR-lite Cross-Attention (Phân tách Evidence độc lập)**
+*   **Vấn đề:** Hiện tại `ConcatClassifier` nối tất cả path thành 1 chuỗi dài, khiến BERT không thể "tập trung" (focus) vào từng path riêng biệt để đánh giá tính logic.
+*   **Kỹ thuật:** Thay đổi kiến trúc Classifier: Encode từng cặp `[CLS] Claim [SEP] Path_i [SEP]` riêng biệt qua BERT. Sau đó dùng một lớp Attention (Cross-Attention hoặc Multi-head Attention) để tổng hợp embedding của các path lại trước khi đưa qua lớp MLP cuối cùng.
+*   **Mục đích:** Khắc phục hoàn toàn giới hạn 512 token (vì mỗi lần chỉ đọc 1 path). Mô hình học được cách tự đánh giá xem path nào là bằng chứng thực sự dẫn đến kết quả (Explainability).
+
+**4. Contrastive Learning với Hard Negative Mining**
+*   **Vấn đề:** Mô hình phân loại hiện tại chỉ học cách dự đoán đúng/sai dựa trên chuỗi văn bản nối liền, chưa được "dạy" cách phân biệt trực tiếp giữa path tốt và path nhiễu.
+*   **Kỹ thuật:** Thêm một hàm loss Contrastive Learning vào quá trình huấn luyện. Kéo vector embedding của (Claim, Path đúng) lại gần nhau và đẩy embedding của (Claim, Path sai) ra xa. Hard negative mining là việc chọn các path sai tinh vi (ví dụ: entity đúng nhưng relation sai) để làm mẫu "đẩy".
+*   **Mục đích:** Tăng cường sức mạnh biểu diễn của mô hình, giúp nó trở nên cực kỳ nhạy bén trong việc loại trừ các đường dẫn đánh lừa, cải thiện độ chính xác cho Multi-hop và Negation.
 
 ---
 **Người báo cáo:** Antigravity (AI Assistant)

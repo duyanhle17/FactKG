@@ -18,7 +18,62 @@
 | **Bài toán** | Fact Verification trên dataset FEVER |
 | **Kết quả đạt được** | 74.84% Label Accuracy (dev), 71.60% LA (test), 67.10% FEVER Score (test) |
 
-### 1.2. Bài Toán Mà GEAR Giải Quyết
+### 1.2. Dataset FEVER Là Gì?
+
+**FEVER** (Fact Extraction and VERification) là một benchmark/dataset lớn được tạo bởi nhóm nghiên cứu của University of Sheffield, công bố tại NAACL 2018. Đây là **bộ dữ liệu tiêu chuẩn** mà hầu hết các paper về Fact Verification đều đánh giá trên đó.
+
+| Đặc điểm | Chi tiết |
+|:---|:---|
+| **Nguồn dữ liệu** | ~5.4 triệu trang Wikipedia |
+| **Số lượng claims** | 185,445 câu khẳng định (do con người viết và xác nhận) |
+| **3 nhãn phân loại** | **SUPPORTED** (đúng), **REFUTED** (sai), **NOT ENOUGH INFO** (thiếu thông tin) |
+| **Nhiệm vụ** | Cho 1 claim → tìm evidence từ Wikipedia → phân loại claim |
+
+**Ví dụ cụ thể:**
+- Claim: *"Nikolaj Coster-Waldau worked with the Fox Broadcasting Company"*
+  - Evidence: *"He starred as Jaime Lannister in the HBO series Game of Thrones"*
+  - Nhãn: **REFUTED** (HBO ≠ Fox)
+
+### 1.3. Các Metrics Đánh Giá: Label Accuracy vs FEVER Score
+
+Paper GEAR báo cáo 2 metrics chính. Cần phân biệt rõ:
+
+| Metric | Cách tính | Ý nghĩa |
+|:---|:---|:---|
+| **Label Accuracy (LA)** | Tỷ lệ claims được dự đoán **đúng nhãn** (Support/Refute/NEI), **không cần kiểm tra evidence** | Đo khả năng phán đoán đúng/sai. Dễ đạt điểm cao hơn vì không yêu cầu tìm đúng bằng chứng |
+| **FEVER Score** | Tỷ lệ claims vừa **đúng nhãn** VÀ vừa **tìm đúng evidence** (ít nhất 1 gold evidence set) | Metric nghiêm ngặt hơn — phạt nặng nếu đoán đúng nhưng không đưa được bằng chứng |
+
+**Công thức FEVER Score:**
+```
+FEVER_Score = (1/N) × Σ sᵢ
+
+Với sᵢ = 1 khi và chỉ khi:
+  (1) Nhãn dự đoán đúng (ŷᵢ = yᵢ)
+  (2) Tìm đúng ít nhất 1 bộ gold evidence (E* ⊆ Ê)
+
+→ FEVER Score luôn ≤ Label Accuracy (vì yêu cầu thêm điều kiện evidence)
+```
+
+**Ví dụ:** Nếu mô hình đoán đúng claim là REFUTED nhưng đưa ra evidence sai → LA được tính đúng, nhưng FEVER Score = 0 cho claim đó.
+
+### 1.4. GEAR So Sánh Với Ai? (Bảng Xếp Hạng Trong Paper)
+
+Paper GEAR so sánh với **các mô hình cùng thời (2018-2019)** trên FEVER dataset:
+
+| Mô hình | Dev LA | Test LA | Test FEVER | Ghi chú |
+|:---|:---:|:---:|:---:|:---|
+| Athene (UKP Lab, 2018) | — | 68.49% | 64.74% | Top 1 FEVER Shared Task 2018 |
+| UCL MRG (2018) | — | 69.66% | 65.41% | Top 2 FEVER Shared Task |
+| BERT-Concat (baseline) | 73.67% | 71.01% | 65.64% | Nối hết evidence thành 1 chuỗi → BERT |
+| BERT-Pair (baseline) | 73.30% | 69.75% | 65.18% | Encode riêng từng evidence, lấy top-1 |
+| **GEAR (Attention, 2-layer)** | **74.84%** | **71.60%** | **67.10%** | **Encode riêng + Graph + Attention** |
+
+**Điểm quan trọng khi đọc bảng:**
+- GEAR so sánh chủ yếu với **BERT-Concat** (nối chuỗi) và **BERT-Pair** (lấy top-1) — đây là 2 baseline mạnh nhất thời đó
+- GEAR thắng BERT-Concat **+1.17% LA** (dev) và **+1.46% FEVER Score** (test)
+- Khoảng cách LA (71.60%) và FEVER Score (67.10%) = **4.5%** → cho thấy hệ thống tìm evidence chưa hoàn hảo, nhưng khả năng phán đoán nhãn đã tốt
+
+### 1.5. Bài Toán Mà GEAR Giải Quyết
 
 GEAR giải bài toán **xác minh sự thật (Fact Verification)**: Cho một câu khẳng định (Claim) và một tập bằng chứng (Evidence), hệ thống phải phân loại câu khẳng định đó là **Support** (đúng), **Refute** (sai), hay **Not Enough Info** (thiếu thông tin).
 

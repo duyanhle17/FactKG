@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Báo cáo paper GEAR — Lê Duy Anh</title>
+  <style>
+    :root{--ink:#172033;--muted:#5c667a;--blue:#3156d3;--cyan:#eaf1ff;--green:#157f64;--gold:#b56a00;--red:#bb3e4a;--line:#dce2ec;--paper:#fff;--bg:#f3f5f9}
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}
+    article{max-width:1040px;margin:32px auto;background:var(--paper);padding:64px 72px;box-shadow:0 8px 30px #1f2b4414}
+    h1{font-size:38px;line-height:1.17;margin:0 0 12px;color:#132b6b} h2{font-size:26px;margin:48px 0 16px;border-bottom:2px solid var(--cyan);padding-bottom:8px;color:#173b8c} h3{font-size:19px;margin:28px 0 8px;color:#244493}
+    p{margin:9px 0} ul,ol{margin:8px 0 16px;padding-left:25px} li{margin:4px 0} a{color:var(--blue)}
+    .kicker{color:var(--blue);font-weight:700;letter-spacing:.08em;text-transform:uppercase;font-size:13px}.subtitle{font-size:20px;color:var(--muted);margin:0 0 24px}.meta{display:grid;grid-template-columns:150px 1fr;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:14px 0;color:var(--muted)}
+    .lead{font-size:19px;line-height:1.65;background:var(--cyan);border-left:5px solid var(--blue);padding:20px 24px;margin:30px 0}
+    .box{border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin:18px 0;background:#fbfcfe}.box strong:first-child{color:#173b8c}.warn{background:#fff8ec;border-color:#f0d3a0}.good{background:#f0faf6;border-color:#b9dfd1}.talk{background:#f8f4ff;border-left:4px solid #7952b3}.talk:before{content:"Gợi ý trình bày";display:block;text-transform:uppercase;font-weight:800;font-size:12px;letter-spacing:.06em;color:#7952b3;margin-bottom:5px}
+    table{width:100%;border-collapse:collapse;margin:14px 0 22px;font-size:14.5px} th,td{border:1px solid var(--line);padding:9px 11px;text-align:left} th{background:#edf2ff;color:#183779} td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}.best{font-weight:800;color:var(--green)}
+    figure{margin:24px 0 30px;border:1px solid var(--line);border-radius:12px;padding:16px;background:#fff;page-break-inside:avoid} figcaption{font-size:13px;color:var(--muted);margin-top:10px;text-align:center} svg{display:block;width:100%;height:auto}.eq{font-family:Georgia,"Times New Roman",serif;font-size:21px}.small{font-size:13px;color:var(--muted)} .tag{display:inline-block;border-radius:99px;padding:2px 9px;background:var(--cyan);color:#27499e;font-weight:700;font-size:13px}.paper-only{color:var(--green)}.proposal{color:var(--gold)}
+    .twocol{display:grid;grid-template-columns:1fr 1fr;gap:18px}.toc{columns:2}.pagebreak{page-break-before:always}.checklist li{list-style:"□  ";padding-left:4px}.footer{margin-top:54px;padding-top:18px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}
+    @media(max-width:760px){article{margin:0;padding:32px 22px}.twocol{grid-template-columns:1fr}.toc{columns:1}h1{font-size:31px}}
+    @media print{@page{size:A4;margin:16mm}body{background:#fff;font-size:11pt}article{max-width:none;margin:0;padding:0;box-shadow:none}h1{font-size:28pt}h2{font-size:18pt;margin-top:28px}h3{font-size:14pt}figure,.box,table{break-inside:avoid}.talk{background:#faf7ff}.no-print{display:none}}
+  </style>
+</head>
+<body>
+<article>
+  <div class="kicker">Báo cáo paper · ACL 2019</div>
+  <h1>GEAR: Graph-based Evidence Aggregating and Reasoning for Fact Verification</h1>
+  <p class="subtitle">Tổng hợp nội dung paper, kết quả thực nghiệm và hướng liên hệ với FactKG</p>
+  <div class="meta"><b>Người trình bày</b><span>Lê Duy Anh</span><b>Ngày báo cáo</b><span>01/07/2026</span><b>Thời lượng gợi ý</b><span>12–15 phút trình bày + 5 phút hỏi đáp</span><b>Paper</b><span>Jie Zhou et al., ACL 2019</span></div>
+
+  <p class="lead"><b>Thông điệp cốt lõi:</b> Khi một claim cần nhiều câu evidence, chỉ nối tất cả evidence thành một chuỗi hoặc đánh giá từng câu độc lập là chưa đủ. GEAR biểu diễn mỗi evidence thành một node, cho các node trao đổi thông tin bằng graph attention, rồi tổng hợp chúng để dự đoán <i>SUPPORTED / REFUTED / NOT ENOUGH INFO</i>.</p>
+
+  <div class="box warn"><b>Ranh giới cần giữ khi báo cáo.</b> Phần từ Mục 1 đến Mục 8 là kết quả của paper trên FEVER. Phần liên hệ FactKG và “GEAR-lite” ở Mục 9 là đề xuất của dự án, không phải mô hình hay kết luận do tác giả GEAR công bố.</div>
+
+  <h2>Mục lục</h2>
+  <ol class="toc">
+    <li>Vấn đề nghiên cứu</li><li>FEVER và metric</li><li>Pipeline GEAR</li><li>Kiến trúc và công thức</li><li>Thiết lập huấn luyện</li><li>Kết quả chính</li><li>Ablation và case study</li><li>Nhận xét, giới hạn</li><li>Liên hệ FactKG</li><li>Dàn ý slide và hỏi đáp</li>
+  </ol>
+
+  <h2>1. Vấn đề nghiên cứu</h2>
+  <p>Fact verification nhận một claim và tìm bằng chứng để xác định claim được hỗ trợ, bị bác bỏ hay chưa đủ thông tin. Điểm khó là một claim có thể cần <b>kết hợp nhiều evidence</b>; từng câu riêng lẻ chưa chắc đủ để kết luận.</p>
+  <div class="twocol">
+    <div class="box"><strong>Cách cũ 1 — Concatenation</strong><br>Nối các evidence vào một chuỗi. Quan hệ giữa các evidence không được mô hình hóa rõ ràng; chuỗi dài còn có nguy cơ chứa nhiều nhiễu.</div>
+    <div class="box"><strong>Cách cũ 2 — Independent prediction</strong><br>Dự đoán từng cặp claim–evidence rồi gộp kết quả. Mô hình khó thực hiện suy luận cần thông tin nằm ở nhiều câu.</div>
+  </div>
+  <p><b>Câu hỏi nghiên cứu của GEAR:</b> Có thể mô hình hóa evidence như một graph để chúng trao đổi thông tin trước khi đưa ra phán quyết cuối cùng hay không?</p>
+  <div class="talk">Mở đầu bằng một câu dễ nhớ: “Đóng góp của GEAR không nằm ở việc tìm evidence, mà nằm ở cách các evidence nói chuyện với nhau sau khi được tìm thấy.”</div>
+
+  <h2>2. Dataset FEVER và cách đánh giá</h2>
+  <p>FEVER được xây dựng từ Wikipedia dump tháng 06/2017 với ba nhãn:</p>
+  <ul><li><b>SUPPORTS:</b> evidence hỗ trợ claim.</li><li><b>REFUTES:</b> evidence mâu thuẫn với claim.</li><li><b>NOT ENOUGH INFO (NEI):</b> không đủ evidence để kết luận.</li></ul>
+  <table>
+    <thead><tr><th>Split</th><th class="num">SUPPORTS</th><th class="num">REFUTES</th><th class="num">NEI</th><th class="num">Tổng</th></tr></thead>
+    <tbody><tr><td>Train</td><td class="num">80,035</td><td class="num">29,775</td><td class="num">35,639</td><td class="num"><b>145,449</b></td></tr><tr><td>Dev</td><td class="num">6,666</td><td class="num">6,666</td><td class="num">6,666</td><td class="num"><b>19,998</b></td></tr><tr><td>Test</td><td class="num">6,666</td><td class="num">6,666</td><td class="num">6,666</td><td class="num"><b>19,998</b></td></tr><tr><td><b>Tổng</b></td><td class="num">93,367</td><td class="num">43,107</td><td class="num">48,971</td><td class="num"><b>185,445</b></td></tr></tbody>
+  </table>
+  <p class="small">Paper có một sai khác nhỏ: văn bản Section 4.1 ghi 185,455, trong khi các số ở Table 2 cộng lại là 185,445. Báo cáo dùng số theo bảng.</p>
+  <table>
+    <thead><tr><th>Metric</th><th>Ý nghĩa</th></tr></thead>
+    <tbody><tr><td><b>Label Accuracy (LA)</b></td><td>Dự đoán đúng nhãn, không yêu cầu evidence trả về phải đầy đủ.</td></tr><tr><td><b>FEVER Score</b></td><td>Với SUPPORTS/REFUTES: đúng nhãn và có ít nhất một gold evidence set hoàn chỉnh. NEI không cần evidence.</td></tr><tr><td><b>Oracle FEVER</b></td><td>Upper bound khi giả định các bước downstream hoàn hảo; dùng để đánh giá retrieval/selection.</td></tr></tbody>
+  </table>
+  <div class="box good"><b>Điểm nên nhấn:</b> FEVER Score ≤ Label Accuracy. Khoảng cách giữa chúng cho thấy hệ thống có thể đoán đúng nhãn nhưng chưa cung cấp đủ evidence; vì vậy retrieval là một phần của chất lượng hệ thống, không chỉ là bước tiền xử lý.</div>
+
+  <h2>3. Pipeline tổng thể</h2>
+  <figure>
+    <svg viewBox="0 0 920 220" role="img" aria-label="Pipeline GEAR">
+      <defs><marker id="arr" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#3156d3"/></marker></defs>
+      <rect x="15" y="75" width="120" height="65" rx="10" fill="#173b8c"/><text x="75" y="113" fill="white" text-anchor="middle" font-size="20" font-weight="700">Claim</text>
+      <rect x="185" y="55" width="155" height="105" rx="10" fill="#eaf1ff" stroke="#3156d3"/><text x="262" y="91" text-anchor="middle" font-size="18" font-weight="700" fill="#173b8c">Document</text><text x="262" y="118" text-anchor="middle" font-size="18" font-weight="700" fill="#173b8c">Retrieval</text><text x="262" y="143" text-anchor="middle" font-size="13" fill="#5c667a">Wikipedia</text>
+      <rect x="390" y="42" width="170" height="130" rx="10" fill="#eaf1ff" stroke="#3156d3"/><text x="475" y="84" text-anchor="middle" font-size="18" font-weight="700" fill="#173b8c">Sentence</text><text x="475" y="111" text-anchor="middle" font-size="18" font-weight="700" fill="#173b8c">Selection</text><text x="475" y="141" text-anchor="middle" font-size="13" fill="#5c667a">ESIM + threshold τ</text><text x="475" y="160" text-anchor="middle" font-size="13" fill="#5c667a">tối đa 5 câu</text>
+      <rect x="610" y="42" width="150" height="130" rx="10" fill="#f0faf6" stroke="#157f64" stroke-width="2"/><text x="685" y="85" text-anchor="middle" font-size="21" font-weight="800" fill="#157f64">GEAR</text><text x="685" y="115" text-anchor="middle" font-size="14" fill="#405166">BERT encoder</text><text x="685" y="137" text-anchor="middle" font-size="14" fill="#405166">ERNet</text><text x="685" y="159" text-anchor="middle" font-size="14" fill="#405166">Aggregator</text>
+      <rect x="810" y="55" width="100" height="105" rx="10" fill="#173b8c"/><text x="860" y="87" fill="white" text-anchor="middle" font-size="13" font-weight="700">SUPPORTS</text><text x="860" y="113" fill="white" text-anchor="middle" font-size="13" font-weight="700">REFUTES</text><text x="860" y="139" fill="white" text-anchor="middle" font-size="13" font-weight="700">NEI</text>
+      <g stroke="#3156d3" stroke-width="3" marker-end="url(#arr)"><line x1="135" y1="107" x2="180" y2="107"/><line x1="340" y1="107" x2="385" y2="107"/><line x1="560" y1="107" x2="605" y2="107"/><line x1="760" y1="107" x2="805" y2="107"/></g>
+    </svg>
+    <figcaption>Hình 1. Ba giai đoạn của pipeline; khối xanh lá là đóng góp claim verification chính của GEAR.</figcaption>
+  </figure>
+  <ol><li><b>Document retrieval:</b> trích entity trong claim, truy vấn MediaWiki, giữ tối đa bảy kết quả cho mỗi query và lọc theo title overlap.</li><li><b>Sentence selection:</b> ESIM chấm relevance; lấy tối đa năm câu và dùng threshold τ để loại câu yếu.</li><li><b>Claim verification:</b> GEAR mã hóa, reasoning trên graph evidence và tổng hợp để phân loại.</li></ol>
+
+  <h2>4. Kiến trúc GEAR và các công thức quan trọng</h2>
+  <h3>4.1. Sentence encoder</h3>
+  <p>Với claim <i>c</i> và evidence <i>e<sub>i</sub></i>, paper dùng BERT<sub>BASE</sub>. Vector <code>[CLS]</code> là representation đầu ra. BERT-Pair phải được fine-tune trên FEVER trước khi dùng làm feature extractor cho GEAR.</p>
+  <figure>
+    <svg viewBox="0 0 920 210" role="img" aria-label="Công thức sentence encoder">
+      <rect x="30" y="25" width="860" height="160" rx="14" fill="#f7f9fd" stroke="#dce2ec"/><text x="70" y="65" fill="#3156d3" font-size="16" font-weight="800">SENTENCE ENCODER</text>
+      <text x="110" y="120" class="eq" fill="#172033">eᵢ = BERT([CLS] evidenceᵢ [SEP] claim [SEP])</text>
+      <text x="580" y="120" class="eq" fill="#172033">c = BERT([CLS] claim [SEP])</text>
+      <text x="460" y="160" text-anchor="middle" font-size="15" fill="#5c667a">Dùng vector [CLS] cuối làm biểu diễn; tham số BERT được chia sẻ giữa các evidence.</text>
+    </svg>
+    <figcaption>Hình 2. Mỗi cặp evidence–claim được mã hóa riêng; đây không phải nối tất cả evidence vào cùng một chuỗi.</figcaption>
+  </figure>
+
+  <h3>4.2. Evidence Reasoning Network (ERNet)</h3>
+  <p>Mỗi evidence là một node trong graph fully connected có self-loop. Một layer reasoning gồm hai bước: tính attention giữa các node, sau đó cập nhật node bằng tổng có trọng số.</p>
+  <figure>
+    <svg viewBox="0 0 920 330" role="img" aria-label="Công thức ERNet">
+      <rect x="30" y="22" width="860" height="286" rx="14" fill="#f0faf6" stroke="#b9dfd1"/><text x="70" y="60" fill="#157f64" font-size="16" font-weight="800">EVIDENCE REASONING NETWORK</text>
+      <text x="80" y="108" class="eq">hᵢ⁰ = eᵢ</text><text x="80" y="158" class="eq">pᵢⱼ = W₁(ReLU(W₀(hᵢ ∥ hⱼ)))</text><text x="80" y="208" class="eq">αᵢⱼ = exp(pᵢⱼ) / Σₖ exp(pᵢₖ)</text><text x="80" y="258" class="eq">hᵢᵗ = Σⱼ αᵢⱼ hⱼᵗ⁻¹</text>
+      <g transform="translate(630 163)"><line x1="0" y1="-73" x2="95" y2="0" stroke="#157f64" stroke-width="3"/><line x1="95" y1="0" x2="20" y2="82" stroke="#157f64" stroke-width="3"/><line x1="20" y1="82" x2="0" y2="-73" stroke="#157f64" stroke-width="3"/><circle cx="0" cy="-73" r="34" fill="#3156d3"/><circle cx="95" cy="0" r="34" fill="#157f64"/><circle cx="20" cy="82" r="34" fill="#b56a00"/><text x="0" y="-67" fill="white" text-anchor="middle" font-size="18">e₁</text><text x="95" y="6" fill="white" text-anchor="middle" font-size="18">e₂</text><text x="20" y="88" fill="white" text-anchor="middle" font-size="18">e₃</text></g>
+    </svg>
+    <figcaption>Hình 3. “∥” là phép nối vector; softmax theo j quyết định evidence nào gửi nhiều thông tin hơn tới node i.</figcaption>
+  </figure>
+
+  <h3>4.3. Evidence aggregator</h3>
+  <p>Sau <i>T</i> layer ERNet, mô hình cần một vector duy nhất để phân loại. Paper so sánh Attention, Max và Mean pooling.</p>
+  <figure>
+    <svg viewBox="0 0 920 285" role="img" aria-label="Công thức attention aggregator">
+      <rect x="30" y="22" width="860" height="240" rx="14" fill="#fff8ec" stroke="#f0d3a0"/><text x="70" y="60" fill="#b56a00" font-size="16" font-weight="800">CLAIM-GUIDED ATTENTION AGGREGATOR</text>
+      <text x="80" y="112" class="eq">qⱼ = W′₁(ReLU(W′₀(c ∥ hⱼᵀ)))</text><text x="80" y="164" class="eq">βⱼ = softmax(qⱼ)</text><text x="80" y="216" class="eq">o = Σⱼ βⱼ hⱼᵀ</text>
+      <text x="610" y="126" font-size="16" fill="#5c667a">Claim c</text><path d="M665 121 C720 121 700 175 755 175" fill="none" stroke="#b56a00" stroke-width="3"/><text x="780" y="180" text-anchor="middle" font-size="18" font-weight="700" fill="#173b8c">o</text><text x="705" y="215" text-anchor="middle" font-size="14" fill="#5c667a">vector tổng hợp → classifier</text>
+    </svg>
+    <figcaption>Hình 4. Claim tham gia chấm trọng số evidence; βⱼ lớn nghĩa là evidence j đóng góp nhiều hơn vào vector tổng hợp.</figcaption>
+  </figure>
+  <div class="talk">Không cần đọc toàn bộ ký hiệu. Hãy giải thích bằng ba động từ: <b>mã hóa riêng → trao đổi thông tin → tổng hợp có điều kiện theo claim</b>. Sau đó chỉ vào ba khối tương ứng.</div>
+
+  <h2>5. Thiết lập thực nghiệm đáng nhớ</h2>
+  <ul><li>BERT-Pair được fine-tune trên FEVER trước; BERT chưa fine-tune cho kết quả gần random guess.</li><li>Sentence selector giữ tối đa 5 evidence; threshold tốt nhất theo label accuracy trong Table 4 là <b>τ = 10<sup>−3</sup></b>.</li><li>Mô hình cuối dùng <b>1 ERNet layer + attention aggregator + τ = 10<sup>−3</sup></b>.</li><li>Tác giả chọn checkpoint/cấu hình theo <b>dev FEVER score</b>, không chỉ theo label accuracy.</li></ul>
+  <div class="box warn"><b>Điểm dễ bị hỏi:</b> Vì sao difficult subset cho thấy 2 layer tốt nhất nhưng model cuối dùng 1 layer? Vì Table 5 chỉ đo label accuracy trên một subset khó; cấu hình cuối được chọn theo dev FEVER score của toàn pipeline.</div>
+
+  <h2>6. Kết quả chính</h2>
+  <table>
+    <thead><tr><th rowspan="2">Model</th><th colspan="2" class="num">Dev</th><th colspan="2" class="num">Test</th></tr><tr><th class="num">LA</th><th class="num">FEVER</th><th class="num">LA</th><th class="num">FEVER</th></tr></thead>
+    <tbody><tr><td>Athene</td><td class="num">68.49</td><td class="num">64.74</td><td class="num">65.46</td><td class="num">61.58</td></tr><tr><td>UCL MRG</td><td class="num">69.66</td><td class="num">65.41</td><td class="num">67.62</td><td class="num">62.52</td></tr><tr><td>UNC NLP</td><td class="num">69.72</td><td class="num">66.49</td><td class="num">68.21</td><td class="num">64.21</td></tr><tr><td>BERT-Pair</td><td class="num">73.30</td><td class="num">68.90</td><td class="num">69.75</td><td class="num">65.18</td></tr><tr><td>BERT-Concat</td><td class="num">73.67</td><td class="num">68.89</td><td class="num">71.01</td><td class="num">65.64</td></tr><tr><td><b>GEAR</b></td><td class="num best">74.84</td><td class="num best">70.69</td><td class="num best">71.60</td><td class="num best">67.10</td></tr></tbody>
+  </table>
+  <figure>
+    <svg viewBox="0 0 920 370" role="img" aria-label="Biểu đồ kết quả test">
+      <text x="460" y="30" text-anchor="middle" font-size="19" font-weight="700" fill="#173b8c">Kết quả trên test set (%)</text>
+      <g font-size="14" fill="#5c667a"><text x="205" y="330">60</text><text x="370" y="330">64</text><text x="535" y="330">68</text><text x="700" y="330">72</text></g>
+      <g stroke="#dce2ec"><line x1="220" y1="48" x2="220" y2="315"/><line x1="385" y1="48" x2="385" y2="315"/><line x1="550" y1="48" x2="550" y2="315"/><line x1="715" y1="48" x2="715" y2="315"/></g>
+      <g font-size="15" text-anchor="end" fill="#172033"><text x="195" y="87">BERT-Pair LA</text><text x="195" y="132">BERT-Concat LA</text><text x="195" y="177" font-weight="700">GEAR LA</text><text x="195" y="237">BERT-Pair FEVER</text><text x="195" y="282">BERT-Concat FEVER</text><text x="195" y="327" font-weight="700">GEAR FEVER</text></g>
+      <g><rect x="220" y="68" width="402" height="24" fill="#7f96df"/><rect x="220" y="113" width="454" height="24" fill="#7f96df"/><rect x="220" y="158" width="478" height="24" fill="#157f64"/><rect x="220" y="218" width="214" height="24" fill="#aebce9"/><rect x="220" y="263" width="233" height="24" fill="#aebce9"/><rect x="220" y="308" width="294" height="24" fill="#157f64"/></g>
+      <g font-size="14" font-weight="700"><text x="630" y="86">69.75</text><text x="682" y="131">71.01</text><text x="706" y="176" fill="#157f64">71.60</text><text x="442" y="236">65.18</text><text x="461" y="281">65.64</text><text x="522" y="326" fill="#157f64">67.10</text></g>
+    </svg>
+    <figcaption>Hình 5. GEAR đạt test LA 71.60 và FEVER 67.10; phần trục được rút gọn từ 60 để dễ nhìn chênh lệch.</figcaption>
+  </figure>
+  <p>So với BERT-Concat, GEAR tăng <b>+0.59 điểm</b> test Label Accuracy và <b>+1.46 điểm</b> test FEVER. Trên dev, mức tăng tương ứng là +1.17 và +1.80 điểm.</p>
+  <div class="box good"><b>Cách diễn giải an toàn:</b> Kết quả chứng minh <i>toàn pipeline GEAR</i> hiệu quả hơn hai BERT baseline trong thiết lập của paper. Nó chưa tách được bao nhiêu phần cải thiện đến riêng từ independent encoding, ERNet hay attention aggregator.</div>
+
+  <h2>7. Ablation: graph reasoning có giúp không?</h2>
+  <h3>7.1. Difficult dev subset</h3>
+  <p>Tập khó có 7,870 mẫu (hơn 39% dev): loại các SUPPORTS/REFUTES có thể giải chỉ bằng một evidence, nhưng giữ toàn bộ NEI. Đây là nơi khả năng kết hợp evidence được kiểm tra rõ hơn.</p>
+  <table><thead><tr><th>ERNet layers</th><th class="num">Attention</th><th class="num">Max</th><th class="num">Mean</th></tr></thead><tbody><tr><td>0</td><td class="num">66.17</td><td class="num">65.36</td><td class="num">65.03</td></tr><tr><td>1</td><td class="num">67.13</td><td class="num">66.63</td><td class="num">66.76</td></tr><tr><td>2</td><td class="num">67.44</td><td class="num">67.24</td><td class="num best">67.56</td></tr><tr><td>3</td><td class="num">66.53</td><td class="num">66.72</td><td class="num">66.89</td></tr></tbody></table>
+  <figure>
+    <svg viewBox="0 0 920 320" role="img" aria-label="Ablation difficult subset">
+      <text x="460" y="28" text-anchor="middle" font-size="19" font-weight="700" fill="#173b8c">Label accuracy trên difficult dev subset</text>
+      <g stroke="#dce2ec"><line x1="90" y1="65" x2="865" y2="65"/><line x1="90" y1="130" x2="865" y2="130"/><line x1="90" y1="195" x2="865" y2="195"/><line x1="90" y1="260" x2="865" y2="260"/></g>
+      <g font-size="13" fill="#5c667a"><text x="50" y="265">65</text><text x="50" y="200">66</text><text x="50" y="135">67</text><text x="50" y="70">68</text><text x="172" y="291">0 layer</text><text x="365" y="291">1 layer</text><text x="558" y="291">2 layers</text><text x="751" y="291">3 layers</text></g>
+      <polyline points="200,184 393,122 586,101 779,160" fill="none" stroke="#3156d3" stroke-width="4"/><polyline points="200,237 393,154 586,114 779,148" fill="none" stroke="#b56a00" stroke-width="4"/><polyline points="200,258 393,146 586,93 779,137" fill="none" stroke="#157f64" stroke-width="4"/>
+      <g fill="#3156d3"><circle cx="200" cy="184" r="6"/><circle cx="393" cy="122" r="6"/><circle cx="586" cy="101" r="6"/><circle cx="779" cy="160" r="6"/></g><g fill="#b56a00"><circle cx="200" cy="237" r="6"/><circle cx="393" cy="154" r="6"/><circle cx="586" cy="114" r="6"/><circle cx="779" cy="148" r="6"/></g><g fill="#157f64"><circle cx="200" cy="258" r="6"/><circle cx="393" cy="146" r="6"/><circle cx="586" cy="93" r="6"/><circle cx="779" cy="137" r="6"/></g>
+      <g font-size="13"><text x="650" y="62" fill="#3156d3">● Attention</text><text x="748" y="62" fill="#b56a00">● Max</text><text x="815" y="62" fill="#157f64">● Mean</text></g>
+    </svg>
+    <figcaption>Hình 6. Hai layer tốt nhất trên subset khó; với Attention, 2 layer tăng 1.27 điểm so với 0 layer.</figcaption>
+  </figure>
+  <p>Kết quả 3 layer giảm, nhưng paper <b>không chứng minh nguyên nhân là over-smoothing</b>. Nếu nhắc đến over-smoothing, phải nói đó là một giả thuyết giải thích, không phải kết luận thực nghiệm của tác giả.</p>
+
+  <h3>7.2. Evidence-enhanced dev set</h3>
+  <p>Tác giả thêm gold evidence vào tập evidence được truy xuất. Accuracy tăng lên khoảng 77–78%, cao hơn hơn 1.4 điểm so với full dev tương ứng. Điều này cho thấy retrieval và sentence selection vẫn là nút thắt đáng kể.</p>
+  <table><thead><tr><th>ERNet layers</th><th class="num">Attention</th><th class="num">Max</th><th class="num">Mean</th></tr></thead><tbody><tr><td>0</td><td class="num">77.12</td><td class="num">76.95</td><td class="num">76.30</td></tr><tr><td>1</td><td class="num">77.74</td><td class="num">77.66</td><td class="num">77.62</td></tr><tr><td>2</td><td class="num best">77.82</td><td class="num best">77.66</td><td class="num best">77.73</td></tr><tr><td>3</td><td class="num">77.70</td><td class="num">77.55</td><td class="num">77.60</td></tr></tbody></table>
+
+  <h3>7.3. Case study</h3>
+  <p>Với claim “Al Jardine is an American rhythm guitarist”, hai evidence hữu ích cung cấp hai mảnh thông tin “rhythm guitarist” và “American musician”. Attention map tập trung vào chúng, minh họa khả năng kết hợp nhiều evidence.</p>
+  <div class="box warn"><b>Giới hạn giải thích:</b> attention weight giúp quan sát mô hình đang ưu tiên đâu, nhưng không mặc nhiên là một lời giải thích nhân quả hoặc faithful explanation.</div>
+
+  <h2>8. Đóng góp, giới hạn và kết luận từ paper</h2>
+  <div class="twocol">
+    <div class="box good"><strong>Đóng góp</strong><ul><li>Mô hình hóa evidence thành graph fully connected.</li><li>Dùng attention message passing để reasoning giữa evidence.</li><li>Cho thấy lợi ích rõ hơn trên claim cần nhiều evidence.</li><li>Đạt kết quả tốt hơn BERT-Pair và BERT-Concat trên FEVER.</li></ul></div>
+    <div class="box warn"><strong>Giới hạn</strong><ul><li>Pipeline phụ thuộc mạnh vào retrieval.</li><li>Graph fully connected tăng chi phí theo số evidence.</li><li>Chỉ tối đa 5 evidence nên chưa kiểm tra graph lớn.</li><li>Ablation chưa tách sạch mọi thành phần.</li><li>Case study attention chưa đủ chứng minh khả năng giải thích.</li></ul></div>
+  </div>
+  <p><b>Kết luận trong một câu:</b> GEAR cho thấy graph-based evidence interaction là một hướng hiệu quả cho fact verification cần nhiều bằng chứng, nhưng chất lượng evidence đầu vào vẫn quyết định trần hiệu năng của toàn hệ thống.</p>
+
+  <h2 class="pagebreak">9. Liên hệ với FactKG <span class="tag">Đề xuất dự án</span></h2>
+  <table><thead><tr><th>Khía cạnh</th><th>GEAR / FEVER</th><th>FactKG</th></tr></thead><tbody><tr><td>Evidence</td><td>Câu văn Wikipedia</td><td>Path từ knowledge graph</td></tr><tr><td>Nhãn</td><td>SUPPORTS / REFUTES / NEI</td><td>True / False</td></tr><tr><td>Quan hệ evidence</td><td>Quan hệ ngữ nghĩa giữa câu</td><td>Quan hệ cấu trúc và logic giữa path</td></tr><tr><td>Rủi ro chung</td><td>Retrieval noise, thiếu evidence</td><td>Path rác, truncation, nhiều candidate path</td></tr></tbody></table>
+  <p>Baseline FactKG hiện flatten các path rồi nối thành một chuỗi trước khi đưa vào BERT. Điều này gần với trực giác BERT-Concat, dù hai hệ thống không giống hệt về dữ liệu, retrieval và giới hạn đầu vào.</p>
+  <figure>
+    <svg viewBox="0 0 920 260" role="img" aria-label="GEAR-lite cho FactKG">
+      <defs><marker id="arr2" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#b56a00"/></marker></defs>
+      <rect x="25" y="36" width="150" height="58" rx="9" fill="#173b8c"/><text x="100" y="70" fill="white" text-anchor="middle" font-size="17" font-weight="700">Claim + Path 1</text><rect x="25" y="102" width="150" height="58" rx="9" fill="#173b8c"/><text x="100" y="136" fill="white" text-anchor="middle" font-size="17" font-weight="700">Claim + Path 2</text><rect x="25" y="168" width="150" height="58" rx="9" fill="#173b8c"/><text x="100" y="202" fill="white" text-anchor="middle" font-size="17" font-weight="700">Claim + Path N</text>
+      <rect x="255" y="67" width="160" height="130" rx="10" fill="#eaf1ff" stroke="#3156d3"/><text x="335" y="113" text-anchor="middle" font-size="18" font-weight="700" fill="#173b8c">Shared BERT</text><text x="335" y="140" text-anchor="middle" font-size="15" fill="#5c667a">encode riêng</text><text x="335" y="164" text-anchor="middle" font-size="15" fill="#5c667a">từng path</text>
+      <rect x="495" y="67" width="175" height="130" rx="10" fill="#fff8ec" stroke="#b56a00"/><text x="582" y="111" text-anchor="middle" font-size="17" font-weight="700" fill="#9a5a00">Claim-guided</text><text x="582" y="138" text-anchor="middle" font-size="17" font-weight="700" fill="#9a5a00">attention</text><text x="582" y="166" text-anchor="middle" font-size="14" fill="#5c667a">pool các path</text>
+      <rect x="750" y="85" width="140" height="94" rx="10" fill="#157f64"/><text x="820" y="122" fill="white" text-anchor="middle" font-size="18" font-weight="700">Classifier</text><text x="820" y="151" fill="white" text-anchor="middle" font-size="17">True / False</text>
+      <g stroke="#b56a00" stroke-width="3" marker-end="url(#arr2)"><line x1="175" y1="65" x2="250" y2="100"/><line x1="175" y1="131" x2="250" y2="131"/><line x1="175" y1="197" x2="250" y2="164"/><line x1="415" y1="132" x2="490" y2="132"/><line x1="670" y1="132" x2="745" y2="132"/></g>
+    </svg>
+    <figcaption>Hình 7. GEAR-lite là đề xuất nội bộ: independent path encoding + attention pooling, chưa có ERNet.</figcaption>
+  </figure>
+  <p>Các kết quả baseline nội bộ cần tái xác nhận cùng checkpoint, split, seed và retrieval artifact trước khi dùng làm số chính thức:</p>
+  <table><thead><tr><th>Reasoning type</th><th class="num">Accuracy</th></tr></thead><tbody><tr><td>Existence</td><td class="num">89.08%</td></tr><tr><td>Conjunction</td><td class="num">85.08%</td></tr><tr><td>Negation</td><td class="num">84.35%</td></tr><tr><td>One-hop</td><td class="num">84.22%</td></tr><tr><td><b>Multi-hop</b></td><td class="num"><b>68.84%</b></td></tr><tr><td><b>Tổng thể</b></td><td class="num"><b>81.80%</b></td></tr></tbody></table>
+  <p><b>Ba giả thuyết có thể kiểm chứng:</b></p>
+  <ol><li>Independent path encoding giảm mất evidence do concat-level truncation.</li><li>Claim-guided attention giảm ảnh hưởng của path không liên quan.</li><li>Lợi ích lớn nhất xuất hiện ở multi-hop có nhiều candidate paths.</li></ol>
+  <div class="box warn"><b>Không nên nói:</b> “GEAR chứng minh GEAR-lite sẽ tăng FactKG lên 83%.” Paper không chạy trên FactKG và GEAR-lite đã bỏ ERNet—thành phần graph reasoning trung tâm. Mọi mức tăng trên FactKG phải được xác nhận bằng ablation riêng.</div>
+
+  <h2>10. Dàn ý slide đề xuất (12–15 phút)</h2>
+  <table><thead><tr><th>Slide</th><th>Nội dung</th><th class="num">Thời gian</th><th>Hình nên dùng</th></tr></thead><tbody>
+    <tr><td>1</td><td>Tiêu đề + một câu thông điệp</td><td class="num">0:30</td><td>—</td></tr>
+    <tr><td>2</td><td>Bài toán và hạn chế concat/independent prediction</td><td class="num">1:15</td><td>Hai box ở Mục 1</td></tr>
+    <tr><td>3</td><td>FEVER, ba nhãn và FEVER Score</td><td class="num">1:15</td><td>Bảng dataset</td></tr>
+    <tr><td>4</td><td>Pipeline tổng thể</td><td class="num">1:15</td><td>Hình 1</td></tr>
+    <tr><td>5</td><td>Sentence encoder</td><td class="num">1:00</td><td>Hình 2</td></tr>
+    <tr><td>6</td><td>ERNet: evidence trao đổi thông tin</td><td class="num">2:00</td><td>Hình 3</td></tr>
+    <tr><td>7</td><td>Aggregator và dự đoán</td><td class="num">1:15</td><td>Hình 4</td></tr>
+    <tr><td>8</td><td>Kết quả full pipeline</td><td class="num">1:30</td><td>Hình 5</td></tr>
+    <tr><td>9</td><td>Ablation trên difficult subset</td><td class="num">1:30</td><td>Hình 6</td></tr>
+    <tr><td>10</td><td>Điểm mạnh, giới hạn</td><td class="num">1:00</td><td>Bảng hai cột</td></tr>
+    <tr><td>11</td><td>Liên hệ FactKG và GEAR-lite</td><td class="num">1:30</td><td>Hình 7</td></tr>
+    <tr><td>12</td><td>Kết luận + hướng thực nghiệm</td><td class="num">0:45</td><td>3 giả thuyết</td></tr>
+  </tbody></table>
+
+  <h3>Ba câu nhất định phải nói</h3>
+  <ol><li>“GEAR xử lý multi-evidence bằng cách để evidence tương tác trên graph trước khi aggregation.”</li><li>“GEAR đạt 71.60 test label accuracy và 67.10 FEVER score; hơn BERT-Concat 1.46 điểm FEVER.”</li><li>“Áp dụng sang FactKG là một giả thuyết nghiên cứu; cần ablation để tách lợi ích của independent encoding, attention và ERNet.”</li></ol>
+
+  <h2>11. Câu hỏi phản biện có thể gặp</h2>
+  <h3>Q1. Vì sao graph fully connected?</h3><p>Vì paper không biết trước cặp evidence nào liên quan. Fully connected cho phép mọi evidence truyền thông tin trực tiếp; attention học mức quan trọng của từng cạnh.</p>
+  <h3>Q2. GEAR có thực sự tốt cho multi-hop không?</h3><p>Có bằng chứng hỗ trợ trên difficult subset: với attention, 2 ERNet layers đạt 67.44 so với 66.17 ở 0 layer. Tuy nhiên, không nên biến mức +1.27 này thành kết luận cho toàn bộ FEVER hay FactKG.</p>
+  <h3>Q3. Tại sao không chỉ concat?</h3><p>Concat không biểu diễn rõ quan hệ giữa evidence và phải nén tất cả vào một sequence. GEAR mã hóa riêng rồi reasoning ở cấp evidence. Kết quả test FEVER của GEAR cao hơn BERT-Concat 1.46 điểm.</p>
+  <h3>Q4. Vì sao 3 layer kém hơn 2 layer?</h3><p>Paper ghi nhận kết quả giảm nhưng không kiểm chứng nguyên nhân. Over-smoothing là một giả thuyết hợp lý, không phải kết luận của paper.</p>
+  <h3>Q5. Attention có phải explanation?</h3><p>Không nhất thiết. Nó hữu ích để phân tích trọng số nội bộ, nhưng muốn khẳng định faithful explanation cần thêm kiểm tra phản thực hoặc perturbation, ví dụ loại top-attended evidence.</p>
+  <h3>Q6. GEAR-lite còn là GEAR không?</h3><p>Không phải bản GEAR đầy đủ. Đó là tên nội bộ cho một ablation lấy cảm hứng từ GEAR: encode riêng và attention pooling nhưng bỏ ERNet.</p>
+
+  <h2>12. Checklist trước buổi báo cáo</h2>
+  <ul class="checklist"><li>Không trộn số FEVER của paper với accuracy nội bộ FactKG.</li><li>Ghi “điểm phần trăm”, không gọi chênh lệch tuyệt đối là “phần trăm cải thiện”.</li><li>Nói rõ difficult subset khác full dev set.</li><li>Nhớ model cuối dùng 1 ERNet layer, dù 2 layer tốt trên subset khó.</li><li>Chuẩn bị câu trả lời về retrieval bottleneck và attention explanation.</li><li>Nếu thời gian thiếu, bỏ chi tiết document retrieval trước; giữ kiến trúc, kết quả, ablation.</li></ul>
+
+  <h2>Tài liệu tham khảo</h2>
+  <p>Zhou, J., Han, X., Yang, C., Liu, Z., Wang, L., Li, C., &amp; Sun, M. (2019). <i>GEAR: Graph-based Evidence Aggregating and Reasoning for Fact Verification</i>. Proceedings of ACL 2019, 892–901.</p>
+  <p class="small">Nguồn số liệu và công thức: GEAR paper, đặc biệt Figure 1–2 và Table 2–7. Phần FactKG dựa trên báo cáo dự án cập nhật ngày 28/06/2026.</p>
+  <div class="footer">Báo cáo soạn cho buổi trình bày ngày 01/07/2026 · Các hình trong tài liệu được dựng lại dưới dạng vector để có thể phóng to khi làm slide hoặc in PDF.</div>
+</article>
+</body>
+</html>

@@ -216,22 +216,33 @@ python main.py --mode eval --config ../config/hop_predict.yaml --model_path <HOP
 
 ### 4.2. Chạy E0, E1, E2
 
-Hiện code chỉ có ConcatClassifier. Sau khi thêm hai classifier và lựa chọn model vào CLI, quy trình mong muốn là:
+Code hiện đã có đủ `cat` (E0), `mean` (E1) và `gearlite` (E2). Chạy từ thư mục `with_evidence/classifier`.
+
+Đầu tiên chỉ sinh candidate artifact **một lần**. Ví dụ dưới đây dùng relation top-5:
 
 ~~~bash
 cd with_evidence/classifier
-
-# E0: baseline hiện tại
-python baseline.py --data_path <DATA_DIR> --kg_path <KG_PATH> --model_cls cat --epoch 10
-
-# E1: sau khi code IndependentPathMeanClassifier
-python baseline.py --data_path <DATA_DIR> --kg_path <KG_PATH> --model_cls mean --epoch 10
-
-# E2: sau khi code GEARLiteClassifier
-python baseline.py --data_path <DATA_DIR> --kg_path <KG_PATH> --model_cls gearlite --epoch 10
+python baseline.py --data_path <DATA_DIR> --kg_path <KG_PATH> --n_candid 5 --prepare_only
 ~~~
 
-Hai lệnh E1/E2 là **mục tiêu sau khi implement**, chưa chạy được với code hiện tại. Cả ba model phải đọc cùng artifact thay vì gọi lại bước sinh candidate trong mỗi lệnh.
+Sau đó mọi model và mọi seed phải thêm `--skip_prepare_input` để không sinh lại candidate. `--n_candid 5` chọn artifact `test_candid_paths_top5.bin`, còn `--max_paths 32` là số path tối đa đi vào classifier; hai tham số này không phải một.
+
+~~~bash
+# E0: chạy lại baseline trên đúng cùng K để so sánh công bằng
+python baseline.py --data_path <DATA_DIR> --model_cls cat --n_candid 5 --max_paths 32 --batch_size 32 --epoch 10 --seed 42 --skip_prepare_input
+
+# E1: Pair + masked Mean
+python baseline.py --data_path <DATA_DIR> --model_cls mean --n_candid 5 --max_paths 32 --pair_batch_size 1 --pair_max_length 128 --epoch 10 --seed 42 --skip_prepare_input
+
+# E2: Pair + masked Attention = GEAR-Lite v1
+python baseline.py --data_path <DATA_DIR> --model_cls gearlite --n_candid 5 --max_paths 32 --pair_batch_size 1 --pair_max_length 128 --epoch 10 --seed 42 --skip_prepare_input
+~~~
+
+Với pair batch 1, code tự dùng gradient accumulation để effective claim batch xấp xỉ batch 32 của E0. Nếu GPU đủ bộ nhớ có thể tăng `--pair_batch_size`; code sẽ tự giảm số bước accumulation tương ứng. `--max_paths 0` giữ toàn bộ path giống baseline cũ nhưng có nguy cơ hết GPU. Nếu điểm E0 trước đây được đo với toàn bộ path thì đó chỉ là kết quả lịch sử; để ablation sạch cần chạy lại E0 với cùng `K=32` như E1/E2.
+
+Mỗi lượt tự chọn checkpoint tốt nhất theo dev accuracy, rồi báo cáo test accuracy và macro-F1 cho đủ năm loại reasoning. Prediction được lưu riêng theo model/seed, ví dụ `test_pred_mean_seed42.bin` và `test_pred_gearlite_seed42.bin`.
+
+Lưu ý phương pháp: `prepare_input` hiện vẫn tạo train/dev candidate từ gold `Evidence`, còn test candidate từ relation/hop prediction. Vì vậy phần đã code là ablation verifier E0–E2; predicted-retrieval dev và path-recall audit ở mục 2.3 vẫn là bước riêng chưa được triển khai.
 
 ### 4.3. Chọn model và báo cáo test
 

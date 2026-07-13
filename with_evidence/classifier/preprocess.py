@@ -2,7 +2,6 @@ import json
 import pickle as pkl
 from random import choice
 from itertools import permutations, chain
-from termcolor import colored
 from tqdm.auto import tqdm
 import os
 
@@ -105,10 +104,21 @@ class KG():
         else:
             return {}    
 
-def prepare_input(data_path, kg_path):
+def prepare_input(data_path, kg_path, n_candid="5"):
+    """Build candidate artifacts for the requested relation-predictor top-N.
+
+    ``n_candid`` is the number of predicted relations (top-N), not the number
+    of final KG paths kept by the classifier's ``--max_paths`` argument.
+    """
+    n_candid = str(n_candid)
+    relation_prediction_path = (
+        f"../retrieve/model/relation_predict/test_relations_top{n_candid}.json"
+    )
+    test_candid_output_path = f"./test_candid_paths_top{n_candid}.bin"
+
     predicted_rs = list()
 
-    with open("../retrieve/model/relation_predict/test_relations_top5.json") as jsf:
+    with open(relation_prediction_path) as jsf:
         js = json.load(jsf)
             
     for idx in js["claims"]:
@@ -158,7 +168,7 @@ def prepare_input(data_path, kg_path):
 
     predicted_rs = dict()
 
-    with open("../retrieve/model/relation_predict/test_relations_top5.json") as jsf:
+    with open(relation_prediction_path) as jsf:
         js = json.load(jsf)
             
     for idx in js["claims"]:
@@ -190,5 +200,5 @@ def prepare_input(data_path, kg_path):
 
     assert len(search_results)==len(db)
     
-    with open("./test_candid_paths_top5.bin", "wb") as pkf:
+    with open(test_candid_output_path, "wb") as pkf:
         pkl.dump(search_results, pkf)

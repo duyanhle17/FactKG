@@ -55,6 +55,67 @@ GEAR-Lite v1 là một verifier mới; nó không thay relation predictor hoặc
 
 Tầng 1 có dạng BERT-Pair-style: claim và một path tương tác trực tiếp bên trong BERT. Nhưng GEAR-Lite không phải BERT-Pair baseline thuần: BERT-Pair thường quyết định từng pair; GEAR-Lite tổng hợp cả tập path để dự đoán một nhãn claim.
 
+### 2.1.1. Pair + Mean hoạt động như nào?
+
+Mean ở đây không phải chọn path tốt nhất. Mean chỉ là cách gom các vector path sau khi BERT đã encode từng path.
+
+~~~text
+Claim + Path-1 -> BERT -> h1
+Claim + Path-2 -> BERT -> h2
+Claim + Path-3 -> BERT -> h3
+...
+Claim + Path-K -> BERT -> hK
+~~~
+
+Mỗi `h_i` là một vector, không phải một điểm số đơn lẻ. Có thể hiểu `h_i` là biểu diễn của câu hỏi: "path_i giúp kiểm chứng claim này như thế nào?".
+
+Với Mean:
+
+~~~text
+o = mean(h1, h2, ..., hK)
+label = MLP(o)
+~~~
+
+`o` cũng là một vector. Nó là vector evidence chung của cả tập path. Vì Mean chia đều vai trò cho các path, nó không học path nào quan trọng hơn path nào. E1 dùng Mean để kiểm tra riêng giả thuyết: chỉ cần tách path khỏi concat dài thì có cải thiện không?
+
+### 2.1.2. MLP, logits và softmax là gì?
+
+Sau khi có vector evidence `o`, model cần biến nó thành nhãn `True/False`. Bước đó do MLP làm.
+
+MLP là một classifier nhỏ, thường gồm vài lớp Linear/ReLU/Dropout. Nó nhận vector `o` và trả ra hai số thô:
+
+~~~text
+logits = MLP(o) = [score_False, score_True]
+~~~
+
+`logits` chưa phải xác suất. Nó chỉ là raw score. Ví dụ:
+
+~~~text
+logits = [1.2, 3.8]
+~~~
+
+Score thứ hai cao hơn nên model nghiêng về nhãn thứ hai. Nếu đưa qua softmax:
+
+~~~text
+prob = softmax(logits)
+~~~
+
+thì hai score được đổi thành xác suất, ví dụ gần như:
+
+~~~text
+prob = [0.07, 0.93]
+~~~
+
+Khi train bằng `CrossEntropyLoss`, PyTorch tự xử lý log-softmax bên trong loss. Khi predict, chỉ cần lấy nhãn có logit lớn nhất:
+
+~~~text
+prediction = argmax(logits)
+~~~
+
+### 2.1.3. Pair + Attention, tức GEAR-Lite v1
+
+Attention khác Mean ở chỗ nó học trọng số cho từng path. Path quan trọng được weight cao hơn, path nhiễu được weight thấp hơn.
+
 Với Attention:
 
 ~~~text
@@ -65,6 +126,15 @@ label = MLP(o)
 ~~~
 
 Path padding phải có attention weight bằng 0. Attention là soft selection sau khi BERT đã đọc từng path; nó không thể cứu một path chưa được retrieval sinh ra.
+
+Vì vậy:
+
+~~~text
+E1 = Pair encoder + Mean + MLP
+E2 = Pair encoder + Attention + MLP = GEAR-Lite v1
+~~~
+
+E1 và E2 có thể dùng chung phần Dataset, Collator và BERT pair encoder. Khác nhau ở tầng aggregator: E1 dùng Mean, E2 dùng Attention. Khi thí nghiệm, vẫn nên chạy thành hai lượt riêng để biết Attention có thật sự hơn Mean hay không.
 
 ### 2.2. Chưa thêm ERNet ở bản đầu
 

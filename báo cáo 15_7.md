@@ -24,80 +24,59 @@ Hai mô hình đều dùng **cùng candidate paths**, cùng BERT và cùng class
 
 ## 3. Cách hoạt động của E1 và E2
 
-E1 và E2 có cùng luồng chạy đến trước bước gộp path. Có thể đọc theo bốn tầng sau:
+Mục tiêu chung của E1/E2 là thay cách cũ **nối toàn bộ path thành một chuỗi dài** bằng cách giữ từng path riêng. Với mỗi claim, retrieval đã sinh sẵn một tập candidate path; classifier lấy tối đa `K` path đầu tiên (`max_paths`, lượt E1 hiện tại dùng `K=32`) để xử lý.
 
 ```text
-Tầng 0: candidate artifact  →  lấy tối đa K path theo thứ tự có sẵn
-Tầng 1: [CLS] Claim [SEP] Path_i [SEP]  →  BERT  →  h_i
-Tầng 2: gộp h_1 ... h_K bằng Mean hoặc Attention  →  vector evidence o
-Tầng 3: MLP(o)  →  logits [score_False, score_True]  →  argmax  →  False/True
+Claim + K candidate paths
+→ Tầng 1: encode từng Claim–Path thành các vector h_i
+→ Tầng 2: gộp các vector path thành một vector evidence o
+→ Tầng 3: dùng o để dự đoán True/False
 ```
 
-### 3.1. Tầng 0 — lấy path trước khi encode
+### 3.1. Tầng 1 — Pair encoder: biến từng path thành vector riêng
 
-Path không được E1/E2 tự sinh ra trong classifier. Chúng được lấy từ các file candidate đã chuẩn bị sẵn:
-
-- Train: `train_candid_paths.bin`
-- Dev: `dev_candid_paths.bin`
-- Test: `test_candid_paths_top{n_candid}.bin`, ví dụ `test_candid_paths_top3.bin`
-
-Khi chạy với `--skip_prepare_input`, code chỉ đọc lại các artifact này để giữ nguyên candidate set. Với mỗi claim `s`, classifier lấy:
-
-```text
-candids[s]["connected"] + candids[s]["walkable"]
-```
-
-Thứ tự được giữ nguyên là `connected` trước, `walkable` sau. Sau đó `_ordered_paths(..., max_paths)` chỉ lấy tối đa `K = max_paths` path đầu tiên. Ở lượt E1 hiện tại, `max_paths=32`, nên chỉ 32 path đầu được đưa vào BERT. Nếu một proof path nằm ngoài 32 path này, E1/E2 sẽ không nhìn thấy nó.
-
-### 3.2. Tầng 1 — Pair encoder dùng chung cho E1 và E2
-
-Sau khi có danh sách path, `PairDataCollator` tạo từng cặp riêng:
+Ở tầng này, model chưa quyết định path nào đúng hay sai. Việc chính là cho BERT đọc **claim cùng từng path riêng lẻ**. Với mỗi path `Path_i`, input đưa vào BERT có dạng:
 
 ```text
 [CLS] Claim [SEP] Path_i [SEP] ,  i = 1 ... K
 ```
 
-Trong text của `Path_i`, các entity/relation trong path được nối bằng token `[SEP]` của tokenizer. Ví dụ khái niệm:
+Nếu một claim có 32 path thì tạo ra 32 cặp `Claim–Path`. Tất cả các cặp này dùng chung một BERT, tức là BERT có cùng trọng số cho mọi path. Sau khi encode, mỗi path có một vector `[CLS]` riêng:
 
 ```text
-Claim: "A is related to B"
-Path_i: entity_1 [SEP] relation_1 [SEP] entity_2 [SEP] relation_2 [SEP] entity_3
+Claim–Path_1 → BERT → h_1
+Claim–Path_2 → BERT → h_2
+...
+Claim–Path_K → BERT → h_K
 ```
 
-Tokenizer biến cả batch thành tensor:
+Các vector này được lưu tạm trong một tensor:
 
 ```text
-[B, K, L]
+[B, K, H]
 ```
 
 - `B`: số claim trong batch.
-- `K`: số path được giữ cho mỗi claim (`max_paths`; lượt E1 hiện tại dùng `K=32`).
-- `L`: số token tối đa của mỗi cặp (`pair_max_length=128`).
+- `K`: số path của mỗi claim.
 - `H`: kích thước vector BERT (768 với `bert-base-cased`).
 
-Trước khi đưa vào BERT, code reshape `[B, K, L]` thành `[B*K, L]`, tức là xem mỗi Claim-Path như một input BERT độc lập. Một shared BERT mã hoá tất cả cặp này, lấy vector `[CLS]` cuối cùng, rồi reshape ngược lại:
+Đi kèm tensor này là `path_mask` để biết đâu là path thật, đâu là padding. Mục đích của tầng 1 là tạo một biểu diễn riêng cho từng path, tránh tình huống path tốt bị chìm hoặc bị cắt mất vì đứng sau nhiều path khác trong chuỗi concat dài. Kết quả mong muốn là: nếu một path chứa evidence quan trọng, nó vẫn có một vector `h_i` riêng để tầng sau sử dụng.
 
-```text
-[B*K, L]  →  Shared BERT  →  [B*K, H]  →  [B, K, H]
-```
+### 3.2. Tầng 2 của E1 — Mean aggregator: lấy trung bình vector path
 
-Vector `h_i` là biểu diễn của riêng cặp `Claim–Path_i`. Do từng pair được giới hạn độc lập, E1/E2 loại bỏ việc một path bị mất chỉ vì nó đứng sau các path khác trong chuỗi concat. Tuy vậy, path dài vẫn có thể bị cắt ở giới hạn 128 token, và path nằm ngoài `max_paths` vẫn không được encode.
-
-`path_mask` đi kèm có shape `[B, K]`: path thật là `True`, path padding là `False`. Mask này được dùng ở tầng gộp để padding không ảnh hưởng kết quả.
-
-### 3.3. Tầng 2 của E1 — Pair + Mean
-
-E1 coi mọi **path hợp lệ** có vai trò như nhau. Nó lấy trung bình có mask của các vector `h_i`:
+Sau tầng 1, E1 có `K` vector path cho một claim. E1 không chọn path nào quan trọng hơn, mà lấy trung bình các vector path hợp lệ:
 
 ```text
 o = sum(h_i * mask_i) / sum(mask_i)
 ```
 
-`mask` bảo đảm các vị trí padding không đi vào phép trung bình. E1 không học path nào quan trọng hơn; vì vậy nó là phép kiểm tra công bằng cho câu hỏi: **chỉ tách từng path ra khỏi concat đã có ích chưa?**
+Vector `o` là vector evidence chung của toàn bộ candidate set. `mask` bảo đảm path padding không đi vào phép trung bình.
 
-### 3.4. Tầng 2 của E2 — Pair + Attention (GEAR-Lite)
+Mục đích của E1 là làm ablation cơ sở: kiểm tra xem **chỉ cần tách từng path ra để BERT encode riêng** đã giúp tốt hơn concat cũ chưa. Cải tiến kỳ vọng của E1 là giảm lỗi do concat quá dài và giữ tín hiệu của từng path rõ hơn. Giới hạn của E1 là mọi path thật đều có trọng số như nhau, nên nếu có nhiều path nhiễu thì vector trung bình vẫn có thể bị loãng.
 
-E2 giữ nguyên tầng lấy path và tầng BERT pair encoder của E1, nhưng thay `mean` bằng attention học được:
+### 3.3. Tầng 2 của E2 — Attention aggregator: học path nào quan trọng hơn
+
+E2 giữ nguyên tầng 1 như E1, nhưng thay phép trung bình bằng attention. Với mỗi vector path `h_i`, model học một điểm quan trọng `score_i`:
 
 ```text
 h_i → Linear(H→64) → ReLU → Linear(64→1) → score_i
@@ -105,11 +84,13 @@ score_1 ... score_K → masked softmax → α_1 ... α_K
 o = Σ α_i h_i
 ```
 
-`α_i` là trọng số attention của path `i`; các padding nhận trọng số 0. Khi train bằng loss nhãn True/False, BERT, lớp attention và MLP được cập nhật cùng nhau. Vì thế E2 có thể ưu tiên path hữu ích hơn thay vì chia đều như E1. Attention chỉ lựa chọn trong candidate set đã có; nó không tự tạo ra path bị retrieval bỏ sót và không phải hard selector.
+`α_i` là trọng số attention của path `i`. Path nào model cho là hữu ích hơn sẽ có `α_i` lớn hơn; path padding có trọng số 0. Vector evidence cuối cùng `o` là tổng có trọng số của các vector path.
 
-### 3.5. Tầng 3 — lấy True/False ở đâu
+Mục đích của E2 là giảm ảnh hưởng của path nhiễu. Thay vì chia đều như E1, E2 học cách đặt trọng số cao hơn cho path có khả năng hỗ trợ hoặc phản bác claim. Cải tiến kỳ vọng là các claim cần nhiều bước suy luận, đặc biệt `Multi-hop` và `Conjunction`, sẽ được lợi vì model có cơ chế tập trung vào path liên quan hơn. Tuy nhiên, attention chỉ chọn mềm trong các path đã được retrieval đưa vào; nếu proof path không có trong candidate set thì E2 cũng không tự tạo ra được.
 
-Sau tầng gộp, cả E1 và E2 đều có một vector evidence chung `o` cho claim. Vector này đi qua cùng một MLP:
+### 3.4. Tầng 3 — Verifier: biến vector evidence thành True/False
+
+Sau tầng 2, cả E1 và E2 đều có một vector evidence chung `o`. Tầng cuối cùng dùng cùng một MLP để biến `o` thành hai điểm số:
 
 ```text
 o → Linear(H→H) → ReLU → Linear(H→2) → logits
@@ -121,15 +102,13 @@ o → Linear(H→H) → ReLU → Linear(H→2) → logits
 [score_False, score_True]
 ```
 
-Khi train, `logits` được so với label gốc bằng `CrossEntropyLoss`. Label gốc trong FactKG được lưu dạng `[True]` hoặc `[False]`, sau đó code đổi thành số bằng `int(label)`: `False = 0`, `True = 1`.
-
-Khi dev/test, code lấy nhãn dự đoán bằng:
+Tầng này là tầng ra quyết định. Khi train, hai score này được so với label thật bằng `CrossEntropyLoss`. Khi dev/test, model chọn score lớn hơn:
 
 ```text
 pred = logits.argmax(dim=1)
 ```
 
-Nếu `pred = 0` thì trả lời `False`; nếu `pred = 1` thì trả lời `True`. Accuracy được tính bằng cách so sánh `pred` với label thật đã đổi sang 0/1.
+Nếu `pred = 0` thì trả lời `False`; nếu `pred = 1` thì trả lời `True`. Mục đích của tầng cuối là biến toàn bộ thông tin evidence đã được encode và gộp lại thành một nhãn claim-level duy nhất. Vì E1 và E2 dùng cùng verifier, khác biệt chính giữa hai mô hình nằm ở tầng 2: E1 gộp bằng mean, còn E2 gộp bằng attention.
 
 ## 4. Các mô hình đã chạy và cấu hình
 

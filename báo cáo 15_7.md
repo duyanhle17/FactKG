@@ -115,34 +115,61 @@ Nếu `pred = 0` thì trả lời `False`; nếu `pred = 1` thì trả lời `Tr
 | Lượt chạy | Model | Retrieval / path setting | Trạng thái |
 |---|---|---|---|
 | **E0 (cũ)** | `ConcatClassifier` | 3-hop, relation top-5; nối evidence thành một input BERT | Đã chạy — báo cáo ngày 06/05 |
-| **E1 (mới)** | Pair + Mean | 3-hop, relation top-3, `max_paths=32`, `pair_max_length=128`, seed 42 | Đã chạy — báo cáo này |
-| **E2 (mới)** | Pair + Attention / GEAR-Lite | Dự kiến giữ đúng candidate set và hyperparameter của E1 để so sánh | Chưa chạy test |
+| **E1** | Pair + Mean | 3-hop, relation top-3, `max_paths=32`, `pair_max_length=128`, seed 42 | Đã chạy |
+| **E2a** | Pair + Attention / GEAR-Lite | 3-hop, relation top-3, seed 42 | Đã chạy; best dev: epoch 0, `dev_acc=0.8859` |
+| **E2b** | Pair + Attention / GEAR-Lite | 3-hop, relation top-5, seed 42 | Đã chạy; best dev: epoch 0, `dev_acc=0.8994` |
 
-Ở lượt E1, checkpoint được chọn trên dev là **epoch 0**, với `dev_acc = 0.8746`. Tập test gồm 9,041 mẫu, được báo cáo theo năm reasoning type của FactKG.
+`top-3`/`top-5` là số **relation** được retrieval giữ lại, không phải số graph path cuối cùng. Pair models dùng mặc định `max_paths=32` và `pair_max_length=128` nếu lệnh chạy không ghi đè hai tham số này. Tập test gồm 9,041 mẫu.
 
 ## 5. Kết quả test
 
-| Reasoning type | E0: Concat<br>3-hop top-5 | E1: Pair + Mean<br>3-hop top-3 | Chênh lệch E1 − E0 | Macro-F1 của E1 |
+### 5.1. Accuracy theo năm reasoning type
+
+| Reasoning type | E0: Concat<br>3-hop top-5 | E1: Pair + Mean<br>3-hop top-3 | E2a: Attention<br>3-hop top-3 | E2b: Attention<br>3-hop top-5 |
 |---|---:|---:|---:|---:|
-| One-hop | 84.22% | 86.42% | +2.20% | 0.8641 |
-| Multi-hop | 68.84% | 67.29% | -1.55% | 0.6492 |
-| Conjunction | 85.08% | 79.41% | -5.67% | 0.7791 |
-| Existence | 89.08% | 94.83% | +5.75% | 0.9483 |
-| Negation | 84.35% | 86.76% | +2.41% | 0.8675 |
-| **Overall accuracy** | **81.80%** | **≈80.93%** | **≈-0.87%** | — |
+| One-hop | 84.22% | 86.42% | 90.49% | **91.12%** |
+| Multi-hop | 68.84% | 67.29% | 69.32% | **71.18%** |
+| Conjunction | **85.08%** | 79.41% | 83.61% | 81.82% |
+| Existence | 89.08% | **94.83%** | **94.83%** | 94.37% |
+| Negation | 84.35% | 86.76% | 87.29% | **87.98%** |
+| **Total Test Accuracy** | 81.80% | ≈80.93% | **83.72%** | 83.69% |
+| **Total Test Macro-F1** | — | — | **83.50%** | 83.48% |
 
-`≈80.93%` là overall accuracy ước tính từ accuracy theo nhóm đã làm tròn trong log E1; cần lấy dòng `Total Test Acc` hoặc prediction thô nếu cần con số chính xác tuyệt đối.
+`≈80.93%` là overall accuracy tái tính từ accuracy theo nhóm đã làm tròn trong log E1; E1 chưa có dòng `Total Test Acc` gốc để đối chiếu.
 
-### Nhận xét đúng về bảng trên
+### 5.2. Macro-F1 của hai lượt GEAR-Lite
 
-- E1 cao hơn E0 ở `One-hop`, `Existence` và `Negation`.
-- E1 thấp hơn ở `Conjunction` (-5.67 điểm) và `Multi-hop` (-1.55 điểm); do đó chưa đạt mục tiêu cải thiện multi-hop.
-- Bảng này **không phải ablation kiến trúc thuần túy**: E0 dùng retrieval top-5, còn E1 dùng top-3. Mức giảm của E1 có thể đến từ việc top-3 bỏ sót relation/path cần thiết, không thể kết luận Pair + Mean kém hơn Concat chỉ từ bảng này.
+| Reasoning type | E2a: top-3 | E2b: top-5 |
+|---|---:|---:|
+| One-hop | 0.9048 | **0.9110** |
+| Multi-hop | 0.6781 | **0.7000** |
+| Conjunction | **0.8285** | 0.8087 |
+| Existence | **0.9483** | 0.9437 |
+| Negation | 0.8725 | **0.8797** |
+| **Total Test Macro-F1** | **0.8350** | 0.8348 |
 
-## 6. Kết luận và bước thử tiếp theo
+### 5.3. Nhận xét so với E1 và E0
 
-Hiện mới có kết quả cho **E1**. Bước quyết định tiếp theo là chạy **E2** với đúng candidate artifact, `n_candid=3`, `max_paths=32`, `pair_max_length=128` và seed như E1. Khi đó khác biệt E1–E2 chỉ còn là **Mean so với Attention**, nên mới trả lời được attention của GEAR-Lite có giúp chọn evidence hay không.
+**E2a top-3 so với E1 top-3** là phép so sánh kiến trúc quan trọng nhất: nếu hai lượt dùng cùng candidate artifact và các hyperparameter Pair giống nhau, khác biệt chính chỉ là `Mean` so với `Attention`. E2a tăng ở mọi nhóm hoặc giữ nguyên:
 
-Sau so sánh E1–E2, nên chạy cùng một kiến trúc với top-5 (hoặc chạy E0 với top-3) để tách riêng ảnh hưởng của **retrieval width** khỏi ảnh hưởng của **kiến trúc classifier**. Model nên được chọn bằng dev trước, rồi mới dùng test để báo cáo kết quả cuối.
+- One-hop: `+4.07` điểm phần trăm; Multi-hop: `+2.03`; Conjunction: `+4.20`.
+- Existence giữ nguyên `94.83%`; Negation tăng `+0.53`.
+- Total Test Accuracy tăng từ `≈80.93%` lên `83.72%` (khoảng `+2.79` điểm phần trăm).
+
+Đây là tín hiệu tốt rằng attention giúp giảm ảnh hưởng của path nhiễu tốt hơn Mean trong candidate set hiện có.
+
+**E2b top-5 so với E2a top-3:** mở rộng relation retrieval làm Multi-hop tăng rõ từ `69.32%` lên **`71.18%`** (`+1.86` điểm phần trăm), đồng thời One-hop và Negation cũng tăng. Tuy nhiên Conjunction giảm `1.79` điểm và Existence giảm `0.46` điểm; Total Test Accuracy giảm rất nhỏ từ `83.72%` xuống `83.69%` (`-0.03` điểm). Vì vậy, ở seed 42, top-5 là cấu hình tốt nhất cho **Multi-hop**, nhưng chưa tốt hơn toàn diện về Overall; hai cấu hình gần như hòa về tổng thể.
+
+**E2b top-5 so với E0 Concat top-5:** đây là so sánh cùng độ rộng retrieval. E2b tăng Multi-hop từ `68.84%` lên **`71.18%`** (`+2.34` điểm), tăng Overall từ `81.80%` lên **`83.69%`** (`+1.89` điểm), và tăng One-hop/Existence/Negation. Riêng Conjunction giảm từ `85.08%` xuống `81.82%` (`-3.26` điểm). Kết quả cho thấy Pair + Attention có triển vọng hơn Concat cho Multi-hop, nhưng không được diễn giải là ablation nhân quả tuyệt đối nếu candidate artifact, seed hoặc các hyperparameter của E0 cũ không hoàn toàn trùng khớp.
+
+## 6. Kết luận và bước tiếp theo
+
+GEAR-Lite Attention đã cải thiện rõ so với Pair + Mean ở top-3; đây là bằng chứng thực nghiệm đầu tiên ủng hộ việc dùng attention để gộp candidate path trong FactKG.
+
+- Nếu ưu tiên **Overall Accuracy** của seed hiện tại, E2a top-3 đang cao nhất: **83.72%**.
+- Nếu ưu tiên riêng **Multi-hop**, E2b top-5 đang tốt nhất: **71.18%**.
+- Chênh lệch Overall giữa E2a và E2b chỉ `0.03` điểm phần trăm, nên chưa đủ để kết luận top-3 tốt hơn top-5 từ một seed.
+
+Bước xác nhận phù hợp là chạy E2a và E2b thêm các seed khác, báo cáo `mean ± std`. Song song, cần thống kê tổng candidate path và tỷ lệ claim bị cắt ở `max_paths=32`/budget 512 token của Concat trước khi thử tăng `max_paths` lên 64.
 
 Nguồn kết quả E0: [bao_cao_6_5.md](bao_cao_6_5.md).

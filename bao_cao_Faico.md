@@ -526,3 +526,163 @@ Faico-style relation/path retrieval
 → giảm trọng số path nhiễu
 → True / False
 ```
+
+---
+
+# 8. Đề xuất tiếp theo cho FactKG: Faico-Lite candidate retriever cho GEAR-Lite
+
+## 8.1. Ý tưởng chính: cải thiện path **trước** khi attention chọn path
+
+Kết quả GEAR-Lite hiện tại cho thấy E2 (Pair + Attention) đã có cơ chế gộp nhiều path tốt hơn E1 (Pair + Mean). Tuy nhiên, E2 chỉ có thể đặt trọng số lên các path đã nằm trong candidate set. Nếu proof multi-hop đúng bị bỏ ở bước graph traversal, attention không thể tự tạo lại nó.
+
+Vì vậy, hướng lấy cảm hứng từ Faico phù hợp nhất **không phải** thay BERT/attention bằng LLM hoặc triển khai toàn bộ token-trie của Faico. Hướng nhỏ, khả thi hơn là:
+
+> Giữ nguyên relation predictor, hop predictor và E2 Attention; thay cách sinh candidate path bằng một traversal có cấu trúc, xác định và ít làm mất alternative proof hơn.
+
+Ta gọi bản thử này là **Faico-Lite candidate retriever**. Đây là một adaptation cho FactKG, không phải khẳng định rằng ta đã tái lập nguyên vẹn Faico.
+
+```text
+Claim + entity trong claim + top-N relation dự đoán + hop cap H
+                    │
+                    ▼
+Faico-Lite candidate retriever
+(path hợp lệ, không ngẫu nhiên, giữ alternative proof)
+                    │
+                    ▼
+Candidate paths p_1 ... p_K
+                    │
+                    ▼
+GEAR-Lite E2 hiện có:
+[Claim, Path_i] → shared BERT → h_i → Attention → o → MLP → True / False
+```
+
+Như vậy, Faico-Lite sửa tầng **retrieval/candidate construction**; E2 sửa tầng **aggregation/verifier**. Hai phần bổ sung cho nhau.
+
+## 8.2. Vì sao đây có thể là bottleneck của multi-hop hiện tại?
+
+Trong `with_evidence/classifier/preprocess.py`, test hiện tạo relation chain như sau:
+
+```python
+rels = {e: list(permutations(candids, r=hop)) for e in ents}
+```
+
+Điều này có ba hệ quả cần kiểm chứng:
+
+1. `top-3`/`top-5` ở đây là số **relation label** được lấy từ relation predictor, không phải số path cuối cùng. Số path còn phụ thuộc vào entity, KG, graph branching, deduplication và traversal thất bại.
+2. `permutations(..., r=hop)` chỉ sinh chain có **đúng** số hop dự đoán và không cho một relation xuất hiện hai lần. Nếu hop predictor sai, hoặc proof hợp lệ cần lặp relation, cả proof có thể không được sinh ra.
+3. `KG.walk` hiện chọn ngẫu nhiên một tail ở hop cuối; `KG.search` lại gộp path theo cặp endpoint. Vì vậy hai relation chain khác nhau nhưng nối cùng một cặp entity có thể chỉ còn một path. Ngoài ra, heuristic dừng nhánh hiện tại có thể bỏ một chain tuyến tính chỉ có một tail ở intermediate hop. Các lựa chọn này giảm chi phí, nhưng làm candidate set không hoàn chỉnh và không xác định giữa các lần chạy.
+
+Đây chính là liên hệ với Faico: Faico nhấn mạnh rằng trước khi reasoning, retriever cần giữ các path **hợp lệ về cấu trúc** và không bỏ mất proof chỉ vì heuristic traversal. Với FactKG, lỗi mất proof này tác động mạnh nhất đến nhóm `Multi-hop`.
+
+## 8.3. Đề xuất kỹ thuật nhỏ: budgeted, deterministic path traversal
+
+### Hai tham số cần phân biệt
+
+- `H`: **hop cap** — số cạnh tối đa của path. Với cấu hình hiện tại có thể bắt đầu bằng `H = hop` dự đoán cho từng claim để so sánh công bằng với pipeline cũ.
+- `k`: **relation budget** — một relation được phép xuất hiện tối đa bao nhiêu lần trong một path. Đây là ý tưởng lấy từ k-BET của Faico, không phải số hop.
+
+Ví dụ, nếu `H = 3`, `R_q = {r1, r2, r3}` và `k = 1`, path `r1 → r2 → r1` bị loại vì `r1` lặp hai lần. Nếu `k = 2`, path đó được phép.
+
+Lưu ý rất quan trọng: `permutations` hiện đã ngầm tương đương với `k = 1` khi chỉ xét một chain dài đúng `H`. Vì vậy, chỉ thêm chữ “k = 1” sẽ **không tự làm điểm tăng**. Giá trị của retriever mới ở lượt đầu là traversal đầy đủ, xác định, giữ full path và dedup đúng; `k = 2` là ablation sau để kiểm tra proof cần relation lặp.
+
+### Faico-Lite retriever đề xuất
+
+Với entity trong claim `T_q`, top-N relation `R_q` và `H`, duyệt state:
+
+```text
+state = (entity hiện tại, depth, số lần mỗi relation còn được dùng, serialized path)
+```
+
+Quy tắc:
+
+1. Chỉ đi theo edge có relation thuộc `R_q`, đúng hướng và còn budget.
+2. Duyệt tail theo thứ tự ổn định; không dùng `random.choice`.
+3. Lưu mọi path hợp lệ đã tìm được, kể cả nhiều path có cùng endpoint; chỉ deduplicate bằng **toàn bộ serialized path** `(entity, relation, entity, ...)`, không chỉ bằng hai endpoint.
+4. Dùng budget dominance kiểu Faico để tránh mở rộng state dư thừa: tại cùng một entity, không cần mở rộng một state nếu đã có state khác còn đủ hoặc nhiều budget hơn cho mọi relation. Tuy nhiên path đã tìm được vẫn phải được lưu để không mất alternative proof.
+5. Giữ `depth ≤ H` ở bản đầu để kiểm soát graph explosion. Chia `connected`/`walkable` như artifact hiện có, đồng thời sắp xếp ổn định trước khi cắt `max_paths`.
+
+Đầu ra vẫn có thể giữ schema cũ:
+
+```python
+{"connected": [...], "walkable": [...]}
+```
+
+Do đó E2 không cần đổi kiến trúc ở thử nghiệm đầu tiên. `max_paths=32`, `pair_max_length=128`, relation predictor và checkpoint E2 cần được giữ cố định để phép so sánh công bằng.
+
+## 8.4. Thứ tự ablation nên chạy
+
+Không nên bật đồng thời k-BET, thêm hop, tăng `K`, và thay attention: nếu điểm tăng sẽ không biết nguyên nhân là gì. Thứ tự sau tách được từng giả thuyết.
+
+| Run | Candidate retriever | E2 classifier | Câu hỏi được trả lời |
+|---|---|---|---|
+| R0 | Artifact legacy hiện có | Attention hiện có | Mốc so sánh, ví dụ E2 top-5 hiện tại. |
+| R1 | Cùng `top-N`, cùng hop chính xác như R0, nhưng traversal xác định; không `random.choice`; giữ full-path alternatives | Không đổi | Việc bỏ sót path do heuristic traversal có làm giảm Multi-hop không? |
+| R2 | Faico-Lite k-BET, `k=1`, `depth ≤ H` | Không đổi | Budget-dominance có giữ candidate structure tốt hơn với chi phí chấp nhận được không? |
+| R3 | R2, nhưng cho `depth ∈ [1, H]` | Không đổi | Hop predictor có đang loại proof ngắn hơn không? |
+| R4 | R2/R3 tốt nhất, `k=2` chỉ trên claim multi-hop | Không đổi | Có proof quan trọng cần lặp relation không? |
+
+`R3` và `R4` phải chạy riêng, không gộp, vì cả hai đều tăng số candidate path và tăng nhiễu. Với `top-3`, `H=3`, `k=1`, việc cho độ dài từ 1 đến 3 tạo tối đa `3 + 6 + 6 = 15` relation sequence cho mỗi start entity trước khi xét graph branching; đây là một ablation còn kiểm soát được. `k=2` nên chỉ thử sau khi log cho thấy coverage vẫn thiếu, vì graph có thể nở nhanh.
+
+## 8.5. Cần đo gì ngoài accuracy?
+
+Mục tiêu của thay đổi này là tăng khả năng proof đi vào candidate set, nên không đủ nếu chỉ nhìn Total Accuracy. Mỗi run cần log ít nhất:
+
+- `Multi-hop` Accuracy và Macro-F1: chỉ số chính.
+- Overall Accuracy/Macro-F1: để biết có làm hỏng các nhóm khác không.
+- Số path trung bình/tối đa mỗi claim; tỷ lệ claim có hơn `K=32` path; tỷ lệ `connected` và `walkable`.
+- Số path bị bỏ vì duplicate hoặc vì vượt `K`; nếu annotation đủ chi tiết, đo thêm gold relation-chain/path recall@32.
+- Runtime, GPU memory và tính xác định: chạy lại cùng seed phải tạo cùng candidate artifact.
+
+Điểm quyết định tiếp theo:
+
+```text
+Nếu R1/R2 tăng candidate coverage và Multi-hop tăng
+    → giữ retriever mới, sau đó mới thử E2 có structural feature.
+Nếu coverage tăng nhưng proof thường nằm sau path thứ 32
+    → mới cân nhắc K=64 hoặc rank/select candidate trước E2.
+Nếu coverage không tăng
+    → bottleneck nằm ở relation/hop predictor; attention hay tăng K không thể tự tạo relation bị thiếu.
+```
+
+Điều này cũng trả lời vì sao chưa nên tăng `max_paths` một cách mù quáng: `K=32` là số path mà BERT pair encoder thực sự được thấy. Nếu proof đã bị traversal loại bỏ thì tăng K không giúp; nếu proof đã có nhưng bị cắt sau path 32 thì mới có bằng chứng để tăng K hoặc thiết kế selector.
+
+## 8.6. Bước sau retrieval: structural attention nhỏ, nhưng không làm trước R1/R2
+
+Nếu R1/R2 chứng minh candidate set đã tốt hơn nhưng E2 vẫn chọn nhầm path, có thể mở rộng scorer của E2 từ:
+
+```text
+score_i = MLP(h_i)
+```
+
+thành:
+
+```text
+score_i = MLP([h_i ; f_i])
+```
+
+Trong đó `h_i` vẫn là vector BERT của cặp Claim–Path, còn `f_i` là feature cấu trúc nhỏ, ví dụ:
+
+- path có nối hai entity trong claim (`connected`) hay chỉ là walkable;
+- số hop và relation budget đã dùng;
+- log-probability của relation chain, nếu relation predictor xuất được score;
+- cờ entity continuity/hướng relation hợp lệ.
+
+Sau đó vẫn dùng masked softmax để có `α_i` và `o = Σ_i α_i h_i` như E2 cũ. Đây là **soft prior**, không phải hard pruning: một path có feature yếu vẫn có thể được BERT-attention chọn nếu nó thực sự chứng minh claim.
+
+Không nên code bước này trước R1/R2. Nếu proof chưa xuất hiện trong candidate set, thêm feature vào attention chỉ làm model chọn “tốt hơn” giữa các path đều không đúng.
+
+## 8.7. Phạm vi code hợp lý cho lượt đầu
+
+Lượt đầu chỉ cần thêm mode mới, không ghi đè baseline:
+
+```text
+with_evidence/classifier/preprocess.py
+  └─ thêm search_kbet(...) / retrieval_mode=legacy|kbet
+     và ghi artifact riêng, ví dụ test_candid_paths_top5_kbet1.bin
+
+with_evidence/classifier/baseline.py
+  └─ không cần sửa kiến trúc E2 ở R1/R2;
+     chỉ nạp artifact mới bằng cùng lệnh classifier hiện có.
+```
+
+Không nên thay relation predictor bằng token-trie/LLM ngay. FactKG đã có relation predictor theo schema; huấn luyện lại một Faico token-trie cần supervision relation riêng và là một đề tài lớn khác. Ý tưởng Faico có giá trị nhất ở giai đoạn này là **structural completeness của candidate path**, sau đó GEAR-Lite Attention mới phát huy đúng vai trò chọn mềm trong tập path đủ tốt.

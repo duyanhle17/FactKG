@@ -128,11 +128,11 @@ Nếu `pred = 0` thì trả lời `False`; nếu `pred = 1` thì trả lời `Tr
 | Reasoning type | E0: Concat<br>3-hop top-5 | E1: Pair + Mean<br>3-hop top-3 | E2a: Attention<br>3-hop top-3 | E2b: Attention<br>3-hop top-5 |
 |---|---:|---:|---:|---:|
 | One-hop | 84.22% | 86.42% | 90.49% | **91.12%** |
-| Multi-hop | 68.84% | 67.29% | 69.32% | **71.18%** |
-| Conjunction | **85.08%** | 79.41% | 83.61% | 81.82% |
+| Multi-hop | 68.84% | 67.29% | 69.32% | **72.18%** |
+| Conjunction | **85.08%** | 79.41% | 83.61% | 82.82% |
 | Existence | 89.08% | **94.83%** | **94.83%** | 94.37% |
 | Negation | 84.35% | 86.76% | 87.29% | **87.98%** |
-| **Total Test Accuracy** | 81.80% | ≈80.93% | **83.72%** | 83.69% |
+| **Total Test Accuracy** | 81.80% | ≈80.93% | **83.72%** | 84.23% |
 | **Total Test Macro-F1** | — | — | **83.50%** | 83.48% |
 
 `≈80.93%` là overall accuracy tái tính từ accuracy theo nhóm đã làm tròn trong log E1; E1 chưa có dòng `Total Test Acc` gốc để đối chiếu.

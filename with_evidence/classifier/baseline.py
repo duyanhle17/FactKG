@@ -88,6 +88,13 @@ parser.add_argument('--gradient_accumulation_steps', default=0, type=int, help='
 parser.add_argument('--seed', default=42, type=int, help='Random seed used by Python, NumPy and PyTorch')
 parser.add_argument('--skip_prepare_input', action='store_true', help='Reuse existing candidate .bin artifacts instead of regenerating them')
 parser.add_argument('--prepare_only', action='store_true', help='Generate candidate artifacts and exit before training')
+# Các cờ dưới đây không đổi kiến trúc E2. Chúng chỉ giúp lưu checkpoint R1 và
+# dùng đúng checkpoint đó để test R2/R3, tránh lẫn ảnh hưởng retriever với
+# khác biệt ngẫu nhiên do train GPU lần nữa.
+parser.add_argument('--run_name', default='', type=str, help='Nhãn riêng cho file prediction, ví dụ r1_top5')
+parser.add_argument('--output_dir', default='.', type=str, help='Thư mục ghi prediction và checkpoint tốt nhất')
+parser.add_argument('--test_only', action='store_true', help='Không train; chỉ test một checkpoint dev tốt nhất đã lưu')
+parser.add_argument('--checkpoint_path', default='', type=str, help='Checkpoint bắt buộc khi dùng --test_only')
 # [GEAR-LITE E1/E2 END]
 
 args = parser.parse_args()
@@ -109,6 +116,10 @@ if args.epoch < 1:
     parser.error('--epoch must be at least 1')
 if args.prepare_only and args.skip_prepare_input:
     parser.error('--prepare_only and --skip_prepare_input cannot be used together')
+if args.prepare_only and args.test_only:
+    parser.error('--prepare_only and --test_only cannot be used together')
+if args.test_only and not args.checkpoint_path:
+    parser.error('--test_only requires --checkpoint_path')
 if not args.skip_prepare_input and any(
     (args.train_candid_path, args.dev_candid_path, args.test_candid_path)
 ):
@@ -116,6 +127,9 @@ if not args.skip_prepare_input and any(
         'Explicit --*_candid_path arguments require --skip_prepare_input; '
         'prepare_input writes only the default artifact filenames.'
     )
+if args.run_name and (os.path.sep in args.run_name or (os.path.altsep and os.path.altsep in args.run_name)):
+    parser.error('--run_name must be a simple label, not a path')
+os.makedirs(args.output_dir, exist_ok=True)
 
 random.seed(args.seed)
 np.random.seed(args.seed)
@@ -770,14 +784,19 @@ torch.manual_seed(args.seed)
 if torch.cuda.is_available():
     torch.cuda.manual_seed_all(args.seed)
 
-optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.5, 0.999))
 best = -1
 best_epoch = -1
 stop_counter = 0
 best_param = None
-run_tag = f"{args.model_cls}_seed{args.seed}"
-valid_prediction_path = f"./valid_pred_{run_tag}.bin"
-test_prediction_path = f"./test_pred_{run_tag}.bin"
+run_tag_parts = [args.model_cls]
+if args.run_name:
+    run_tag_parts.append(args.run_name)
+run_tag_parts.append(f"seed{args.seed}")
+run_tag = "_".join(run_tag_parts)
+# Tên có run_name + seed để R1/R2/R3 và các seed không ghi đè file nhau.
+valid_prediction_path = os.path.join(args.output_dir, f"valid_pred_{run_tag}.bin")
+test_prediction_path = os.path.join(args.output_dir, f"test_pred_{run_tag}.bin")
+best_checkpoint_path = os.path.join(args.output_dir, f"best_model_{run_tag}.pth")
 
 
 def _macro_f1(predictions, labels):
@@ -802,93 +821,122 @@ REASONING_TYPE_NAMES = {
     4: "negation",
 }
 
-for epoch in range(args.epoch):
-    model.train()
-    losses = list()
-    scores = list()
-    optimizer.zero_grad(set_to_none=True)
-    accumulated_batches = 0
-    for i, batch in tqdm(enumerate(train_loader), total=len(train_loader), desc=f"Train {epoch}", leave=False):
-        loss, logit = model(batch)
-        loss.backward()
-        accumulated_batches += 1
-
-        should_update = (
-            accumulated_batches == gradient_accumulation_steps
-            or i == len(train_loader) - 1
-        )
-        if should_update:
-            # Average gradients over the actual number of accumulated batches,
-            # including the shorter final group at the end of an epoch.
-            for parameter in model.parameters():
-                if parameter.grad is not None:
-                    parameter.grad.div_(accumulated_batches)
-            optimizer.step()
-            optimizer.zero_grad(set_to_none=True)
-            accumulated_batches = 0
-
-        losses.append(loss.item())
-        pred = logit.max(dim=1).indices.bool()
-        gt = batch["label"].bool()
-        score = pred==gt
-        scores.append(score.detach().cpu().reshape(-1))
-        progress_interval = max(1, len(train_loader) // 5)
-        if i % progress_interval == 0:
-            loss = f"{torch.Tensor(losses).mean().item():.5f}"
-            accuracy = f"{torch.cat(scores).float().mean().item():.4f}"
-            print(f"Epoch {colored(epoch, 'yellow')}, Loss: {colored(loss, 'yellow')}, Acc: {colored(accuracy, 'yellow')}")
-            losses = list()
-            scores = list()
-            
+if args.test_only:
+    if not os.path.isfile(args.checkpoint_path):
+        raise FileNotFoundError(f"Checkpoint not found: {args.checkpoint_path}")
+    loaded_checkpoint = torch.load(args.checkpoint_path, map_location="cpu")
+    if isinstance(loaded_checkpoint, dict) and "model_state_dict" in loaded_checkpoint:
+        best_param = loaded_checkpoint["model_state_dict"]
+        best_epoch = int(loaded_checkpoint.get("best_epoch", -1))
+        best = float(loaded_checkpoint.get("best_dev_accuracy", float("nan")))
+    elif isinstance(loaded_checkpoint, dict):
+        # Hỗ trợ cả state_dict PyTorch thuần nếu người dùng đã có checkpoint cũ.
+        best_param = loaded_checkpoint
+    else:
+        raise ValueError("Checkpoint must be a state_dict or contain model_state_dict")
+    model.load_state_dict(best_param)
     model.eval()
-    with torch.no_grad():
+    print(f"Loaded checkpoint for test only: {args.checkpoint_path}")
+else:
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(0.5, 0.999))
+    for epoch in range(args.epoch):
+        model.train()
+        losses = list()
         scores = list()
-        gts = list()
-        dev_predictions = list()
-        for i, batch in tqdm(enumerate(dev_loader), total=len(dev_loader), desc=f"Dev", leave=False):
-            _, logit = model(batch)
+        optimizer.zero_grad(set_to_none=True)
+        accumulated_batches = 0
+        for i, batch in tqdm(enumerate(train_loader), total=len(train_loader), desc=f"Train {epoch}", leave=False):
+            loss, logit = model(batch)
+            loss.backward()
+            accumulated_batches += 1
+
+            should_update = (
+                accumulated_batches == gradient_accumulation_steps
+                or i == len(train_loader) - 1
+            )
+            if should_update:
+                # Average gradients over the actual number of accumulated batches,
+                # including the shorter final group at the end of an epoch.
+                for parameter in model.parameters():
+                    if parameter.grad is not None:
+                        parameter.grad.div_(accumulated_batches)
+                optimizer.step()
+                optimizer.zero_grad(set_to_none=True)
+                accumulated_batches = 0
+
+            losses.append(loss.item())
             pred = logit.max(dim=1).indices.bool()
             gt = batch["label"].bool()
-            score = pred==gt
-            dev_predictions.append(pred.cpu().reshape(-1))
-            scores.append(score.cpu().reshape(-1))
-            gts.append(gt.cpu().reshape(-1))
-        accuracy = torch.cat(scores).float().mean().item()
-        str_accuracy = f"{accuracy:.4f}"
-        print(f"Dev Acc: {colored(str_accuracy, 'green')}")
+            score = pred == gt
+            scores.append(score.detach().cpu().reshape(-1))
+            progress_interval = max(1, len(train_loader) // 5)
+            if i % progress_interval == 0:
+                loss = f"{torch.Tensor(losses).mean().item():.5f}"
+                accuracy = f"{torch.cat(scores).float().mean().item():.4f}"
+                print(f"Epoch {colored(epoch, 'yellow')}, Loss: {colored(loss, 'yellow')}, Acc: {colored(accuracy, 'yellow')}")
+                losses = list()
+                scores = list()
 
-    if best < accuracy:
-        best = accuracy
-        best_epoch = epoch
-        # Clone the true best-dev state onto CPU. This avoids both the original
-        # live-reference bug and a second BERT-sized checkpoint occupying VRAM.
-        best_param = {
-            name: value.detach().cpu().clone()
-            for name, value in model.state_dict().items()
-        }
-        # Store predictions from the same epoch as best_param, using a unique
-        # model/seed name so E1, E2 and repeated seeds do not overwrite results.
-        with open(valid_prediction_path, "wb") as pkf:
-            result = {
-                "hit": [i for i, hit in enumerate(torch.cat(scores)) if hit],
-                "prediction": torch.cat(dev_predictions).long(),
-                "label": torch.cat(gts).long(),
-                "accuracy": accuracy,
-                "epoch": epoch,
+        model.eval()
+        with torch.no_grad():
+            scores = list()
+            gts = list()
+            dev_predictions = list()
+            for i, batch in tqdm(enumerate(dev_loader), total=len(dev_loader), desc="Dev", leave=False):
+                _, logit = model(batch)
+                pred = logit.max(dim=1).indices.bool()
+                gt = batch["label"].bool()
+                score = pred == gt
+                dev_predictions.append(pred.cpu().reshape(-1))
+                scores.append(score.cpu().reshape(-1))
+                gts.append(gt.cpu().reshape(-1))
+            accuracy = torch.cat(scores).float().mean().item()
+            str_accuracy = f"{accuracy:.4f}"
+            print(f"Dev Acc: {colored(str_accuracy, 'green')}")
+
+        if best < accuracy:
+            best = accuracy
+            best_epoch = epoch
+            # Copy checkpoint tốt nhất sang CPU để không chiếm thêm VRAM và để
+            # state tốt nhất không bị thay đổi bởi các epoch train sau.
+            best_param = {
+                name: value.detach().cpu().clone()
+                for name, value in model.state_dict().items()
             }
-            pkl.dump(result, pkf)
-        stop_counter = 0
-    else:
-        stop_counter += 1
-    if stop_counter > 3:
-        break
+            # Prediction dev phải đi cùng chính epoch đã tạo best_param.
+            with open(valid_prediction_path, "wb") as pkf:
+                result = {
+                    "hit": [i for i, hit in enumerate(torch.cat(scores)) if hit],
+                    "prediction": torch.cat(dev_predictions).long(),
+                    "label": torch.cat(gts).long(),
+                    "accuracy": accuracy,
+                    "epoch": epoch,
+                }
+                pkl.dump(result, pkf)
+            stop_counter = 0
+        else:
+            stop_counter += 1
+        if stop_counter > 3:
+            break
 
-if best_param is None:
-    raise RuntimeError("No checkpoint was produced; --epoch must be at least 1")
+    if best_param is None:
+        raise RuntimeError("No checkpoint was produced; --epoch must be at least 1")
 
-model.load_state_dict(best_param)
-model.eval()
-print(f"Selected best checkpoint: epoch={best_epoch}, dev_acc={best:.4f}")
+    # Lưu checkpoint ra file: R2/R3 sẽ nạp đúng model R1 này ở --test_only.
+    torch.save(
+        {
+            "model_state_dict": best_param,
+            "best_epoch": best_epoch,
+            "best_dev_accuracy": best,
+            "model_cls": args.model_cls,
+            "seed": args.seed,
+        },
+        best_checkpoint_path,
+    )
+    model.load_state_dict(best_param)
+    model.eval()
+    print(f"Selected best checkpoint: epoch={best_epoch}, dev_acc={best:.4f}")
+    print(f"Saved best-dev checkpoint to: {best_checkpoint_path}")
 
 with torch.no_grad():
     scores = list()
@@ -938,5 +986,6 @@ with open(test_prediction_path, "wb") as pkf:
     }
     pkl.dump(result, pkf)
 
-print(f"Saved best-dev predictions to: {valid_prediction_path}")
+if not args.test_only:
+    print(f"Saved best-dev predictions to: {valid_prediction_path}")
 print(f"Saved test predictions to: {test_prediction_path}")

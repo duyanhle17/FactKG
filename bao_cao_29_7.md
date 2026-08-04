@@ -1,64 +1,63 @@
-# Báo cáo ngày 29/7: Faico-Lite kết hợp với GEARLite E2
+# Bao cao 29/7: Faico-Lite x GEARLite E2
 
-## 1. Mục tiêu và ý tưởng áp dụng
+## Muc tieu
 
-Mục tiêu của tuần này là cải thiện tập **candidate evidence path** đưa vào
-GEARLite E2, đặc biệt cho các claim cần suy luận nhiều bước. Ý tưởng lấy từ
-Faico là: sau khi đã có các relation liên quan, bước duyệt KG không nên làm mất
-path hợp lệ chỉ vì heuristic hoặc việc chọn nhánh ngẫu nhiên.
+Tuan nay thu nghiem y tuong tu Faico o tang retrieval, khong thay doi relation
+predictor, hop predictor hay kien truc GEARLite E2. Dau vao test cua ba run
+giu co dinh top-5 relation, hop prediction, KG, `max_paths=32`, seed va
+checkpoint E2 R1.
 
-Trong FactKG, pipeline hiện tại là:
+Faico-Lite thay heuristic traversal cu bang duyet KG co thu tu xac dinh: giu
+serialized path rieng biet, khong chon tail ngau nhien va uu tien `connected`
+truoc `walkable`. De phu hop voi E2, artifact chi luu toi 32 path ma model co
+the encode; khi da du 32 connected path, retrieval dung som cho claim do.
 
-```text
-Claim + entity
-→ relation predictor: top-5 relation
-→ hop predictor: số hop H
-→ Faico-Lite candidate retriever
-→ evidence path
-→ GEARLite E2 attention
-→ True / False
-```
+## Ba cau hinh candidate path
 
-Faico-Lite được đặt ở bước sinh candidate path, trước E2. Thay vì chọn một
-tail ngẫu nhiên hoặc gộp các path khác nhau có cùng endpoint, retriever mới
-duyệt KG theo thứ tự xác định, giữ mọi tail/path hợp lệ và chỉ bỏ các path trùng
-hoàn toàn. Nhờ đó, nếu có nhiều alternative proof cho cùng một claim, E2 có cơ
-hội nhìn thấy chúng và dùng attention để chọn path hữu ích hơn.
+| Run | Candidate path test | Cach danh gia |
+|---|---|---|
+| R1 | Dung do dai hop H du doan, relation khong lap (`k=1`) | Train E2 tren candidate R1, chon best dev checkpoint, test R1 |
+| R2 | Sinh path do dai 1 den H, `k=1` | Dung checkpoint R1, chi thay candidate test |
+| R3 | R2 + moi relation duoc lap toi 2 lan (`k=2`) | Dung checkpoint R1, chi thay candidate test |
 
-Ba cấu hình được kiểm tra là: R1 giữ path đúng độ dài hop dự đoán và không lặp
-relation; R2 sinh thêm path ngắn hơn hop dự đoán; R3 cho phép một relation lặp
-tối đa hai lần. Mục đích là kiểm tra lần lượt việc traversal cũ có làm mất
-proof, hop predictor có dự đoán dài hơn proof thật hay không, và proof
-multi-hop có cần relation lặp lại hay không.
+R2 va R3 la retrieval ablation: test claim, label va model giong R1. Chi
+evidence path dua vao E2 thay doi, nen chenh lech diem phan anh tac dong cua
+quy tac sinh/loc candidate path.
 
-## 2. Khác với Faico và phần ý tưởng được sử dụng
+## Du lieu va checkpoint R1
 
-Faico gốc dùng LLM fine-tune kết hợp token-trie để sinh relation liên quan với
-câu hỏi, dùng k-BET và budget dominance để truy xuất reasoning subgraph, rồi
-dùng LLM để sinh câu trả lời. FactKG hiện không dùng hai LLM này; vẫn giữ
-relation predictor, hop predictor và GEARLite E2 gốc.
+- Candidate R1 da tao xong cho train (86,367), dev (13,266) va test (9,041).
+- Retrieval report: artifact luu 1,745,603 path train, 251,585 path dev va
+  154,200 path test sau gioi han top-32.
+- E2 train toi da 5 epoch, seed 42; best checkpoint la epoch 0 voi Dev Acc
+  `0.9408`. R2/R3 dung dung checkpoint nay.
 
-Phần được áp dụng từ Faico là ý tưởng **structural completeness** ở tầng
-retrieval: chỉ duyệt theo các relation đã chọn, kiểm soát số lần lặp relation
-bằng budget `k`, và tránh làm mất path hợp lệ trong quá trình traversal. Tuy
-nhiên, budget dominance hiện chỉ được audit chứ chưa dùng để cắt path, vì E2
-cần encode từng serialized path riêng.
+## Ket qua test
 
-Việc chưa thay predictor bằng LLM là có chủ đích. Trước hết cần kiểm tra: với
-cùng top-5 relation và cùng hop dự đoán của FactKG, candidate path cũ có đang
-làm mất proof không. Vì vậy hiện chưa cần train lại phần `retrieve`; nếu
-dataset, KG và checkpoint predictor không đổi thì dùng lại prediction relation
-và hop đã có. Nếu R1–R3 cho thấy proof vẫn thiếu do relation/hop dự đoán sai,
-bước sau mới xem xét LLM sinh relation hoặc một mô hình dự đoán hop mới.
+| Run | Best dev Acc | Test Acc | Test Macro-F1 | Multi-hop Acc | Multi-hop Macro-F1 |
+|---|---:|---:|---:|---:|---:|
+| R1 | 0.9408 | 0.8391 | 0.8377 | 0.7567 | 0.7483 |
+| R2 | Dung checkpoint R1 | 0.8454 | 0.8442 | 0.7828 | 0.7773 |
+| R3 | Dung checkpoint R1 | 0.8460 | 0.8449 | 0.7860 | 0.7808 |
 
-## 3. Trạng thái và kết quả hiện tại
+| Reasoning type | R1 Acc / F1 | R2 Acc / F1 | R3 Acc / F1 |
+|---|---:|---:|---:|
+| One-hop | 0.9044 / 0.9043 | 0.9080 / 0.9079 | 0.9080 / 0.9079 |
+| Multi-hop | 0.7567 / 0.7483 | 0.7828 / 0.7773 | 0.7860 / 0.7808 |
+| Conjunction | 0.8358 / 0.8283 | 0.8351 / 0.8278 | 0.8351 / 0.8278 |
+| Existence | 0.9437 / 0.9437 | 0.9448 / 0.9448 | 0.9448 / 0.9448 |
+| Negation | 0.7998 / 0.7983 | 0.8014 / 0.7999 | 0.8014 / 0.7999 |
 
-Candidate R1 đã tạo xong cho 86.367 claim train, 13.266 claim dev và 9.041
-claim test. Retrieval report ghi nhận lần lượt 1.745.603, 251.585 và 154.200
-path; toàn bộ path được lưu trong artifact, còn E2 chỉ đọc tối đa 32 path cho
-mỗi claim khi train/test.
+## Danh gia
 
-E2 với R1 đang train. Checkpoint dev tạm thời tại epoch 2 đạt Accuracy `0.9390`;
-đây chưa phải kết quả test cuối cùng. Sau khi chọn checkpoint dev tốt nhất của
-R1, cùng checkpoint này sẽ được dùng để test R2 và R3. Kết quả cuối sẽ so sánh
-Test Accuracy, Macro-F1 và đặc biệt là Multi-hop Accuracy/Macro-F1 giữa ba run.
+- R2 tang so voi R1: Test Acc `+0.0063`, Macro-F1 `+0.0065`; multi-hop tang
+  manh nhat, Acc `+0.0261` va Macro-F1 `+0.0290`.
+- R3 la ket qua tot nhat: so voi R1, Test Acc `+0.0069`, Macro-F1 `+0.0072`;
+  multi-hop Acc `+0.0293` va Macro-F1 `+0.0325`.
+- R3 hon R2 chu yeu o multi-hop (`+0.0032` Acc, `+0.0035` F1), trong khi cac
+  reasoning type khac giu gan nhu nguyen. Dieu nay phu hop voi gia thuyet
+  path ngan hon va relation lap co the khoi phuc proof path bi bo sot, thay vi
+  tao nhieu nhieu cho cac case don gian.
+
+Artifact, retrieval report va prediction duoc luu tai
+`artifacts/faico_lite_top5/r1`, `r2` va `r3`.

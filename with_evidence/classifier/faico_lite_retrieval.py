@@ -159,19 +159,33 @@ class DeterministicPathRetriever:
         entities: Sequence[object],
         relation_paths_by_entity: Mapping[object, Iterable[object]],
         allowed_relations: Optional[Sequence[object]] = None,
+        store_max_paths: Optional[int] = None,
     ) -> Tuple[Dict[str, List[List[str]]], Dict[str, int]]:
         """Trả về ``connected``/``walkable`` và thống kê cho một claim.
 
         ``allowed_relations`` chỉ có ở test, nơi path được tạo từ relation
         predictor. Nó phục vụ R4. Train/dev dùng Evidence gold nên không ép
         budget k lên Evidence; tránh làm thay đổi nhãn evidence có sẵn.
+
+        ``store_max_paths`` giới hạn số path ghi vào artifact cho mỗi claim.
+        Nó vẫn duyệt hết KG, nhưng chỉ giữ prefix có thể được ``baseline.py``
+        dùng khi lấy ``connected + walkable`` rồi cắt top-K. Nhờ đó builder
+        không tích lũy những path mà E2 không bao giờ encode.
         """
+        if store_max_paths is not None and store_max_paths < 1:
+            raise ValueError("store_max_paths must be at least 1 when provided")
+
         ordered_entities = sorted(_ordered_unique(entities), key=_stable_key)
         entity_set = set(ordered_entities)
         connected: List[List[str]] = []
         walkable: List[List[str]] = []
-        seen_paths = set()
+        # Dedup theo group là tương đương với set chung: một serialized path
+        # luôn có endpoint cố định, nên khong the vua connected vua walkable.
+        # Khi group da du top-K, khong can giu/nhin nho cac path ve sau nua.
+        connected_seen = set()
+        walkable_seen = set()
         diagnostics: Counter = Counter()
+        stop_after_connected_limit = False
 
         audit_relations = (
             tuple(str(relation) for relation in _ordered_unique(allowed_relations))
@@ -181,20 +195,34 @@ class DeterministicPathRetriever:
         budget_history: Dict[Tuple[str, str, int, int], List[Tuple[int, ...]]] = defaultdict(list)
 
         def register(nodes: Sequence[object], relation_path: Sequence[str], start: object) -> None:
+            nonlocal stop_after_connected_limit
             diagnostics["terminal_paths"] += 1
             if nodes[0] == nodes[-1]:
                 diagnostics["self_loop_paths_skipped"] += 1
                 return
             serialised = serialize_path(nodes, relation_path)
-            if serialised in seen_paths:
+            is_connected = nodes[-1] in entity_set and nodes[-1] != start
+            bucket = connected if is_connected else walkable
+            seen = connected_seen if is_connected else walkable_seen
+
+            if serialised in seen:
                 diagnostics["duplicate_serialized_paths_removed"] += 1
                 return
-            seen_paths.add(serialised)
+            if store_max_paths is not None and len(bucket) >= store_max_paths:
+                # Khong dua path nay vao set: no nam sau prefix da du va khong
+                # the anh huong top-K ma classifier doc tu artifact.
+                diagnostics["terminal_paths_not_stored_due_to_limit"] += 1
+                diagnostics["candidate_store_limit_reached"] = 1
+                return
 
-            if nodes[-1] in entity_set and nodes[-1] != start:
-                connected.append(list(serialised))
-            else:
-                walkable.append(list(serialised))
+            seen.add(serialised)
+            bucket.append(list(serialised))
+            if is_connected and store_max_paths is not None and len(connected) >= store_max_paths:
+                # connected luon dung truoc walkable trong baseline.py. Khi da
+                # co K connected path theo thu tu DFS, top-K da co dinh va
+                # phan con lai cua claim khong the thay doi input cua E2.
+                stop_after_connected_limit = True
+                diagnostics["search_stopped_after_connected_limit"] = 1
 
         for start in ordered_entities:
             raw_paths = relation_paths_by_entity.get(start, ())
@@ -205,6 +233,8 @@ class DeterministicPathRetriever:
                 target_length = len(relation_path)
 
                 def visit(node: object, depth: int, nodes: List[object], used: Counter) -> None:
+                    if stop_after_connected_limit:
+                        return
                     diagnostics["expanded_states"] += 1
                     diagnostics["max_depth"] = max(diagnostics["max_depth"], depth)
 
@@ -247,8 +277,26 @@ class DeterministicPathRetriever:
                         used[relation] += 1
                         visit(tail, depth + 1, nodes + [tail], used)
                         used[relation] -= 1
+                        if stop_after_connected_limit:
+                            return
 
                 visit(start, 0, [start], Counter())
+                if stop_after_connected_limit:
+                    break
+            if stop_after_connected_limit:
+                break
+
+        if store_max_paths is not None:
+            # baseline.py luon uu tien connected truoc walkable. Trong luc
+            # duyet chua biet se co bao nhieu connected, nen tam giu toi K
+            # walkable; o day cat lai de artifact dung bang top-K legacy.
+            remaining_walkable = max(0, store_max_paths - len(connected))
+            if len(walkable) > remaining_walkable:
+                diagnostics["walkable_paths_trimmed_after_connected_priority"] = (
+                    len(walkable) - remaining_walkable
+                )
+                diagnostics["candidate_store_limit_reached"] = 1
+                walkable = walkable[:remaining_walkable]
 
         diagnostics["connected_paths"] = len(connected)
         diagnostics["walkable_paths"] = len(walkable)

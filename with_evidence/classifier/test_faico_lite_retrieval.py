@@ -51,6 +51,44 @@ class FaicoLiteRetrievalTest(unittest.TestCase):
             [["A", "r", "B"], ["A", "r", "C"]],
         )
 
+    def test_store_limit_matches_classifier_top_k_order(self):
+        # r1/r3 la walkable va duyet truoc r2, nhung baseline.py luon xep
+        # connected truoc. Candidate da gioi han phai van giong full[:K].
+        kg = {
+            "A": {"r1": ["W1"], "r2": ["Z"], "r3": ["W2"]},
+        }
+        retriever = DeterministicPathRetriever(kg)
+        relation_paths = {"A": [["r1"], ["r2"], ["r3"]]}
+        full_groups, _ = retriever.search(["A", "Z"], relation_paths)
+        limited_groups, diagnostics = retriever.search(
+            ["A", "Z"],
+            relation_paths,
+            store_max_paths=2,
+        )
+
+        self.assertEqual(
+            limited_groups["connected"] + limited_groups["walkable"],
+            (full_groups["connected"] + full_groups["walkable"])[:2],
+        )
+        self.assertEqual(diagnostics["total_paths"], 2)
+
+    def test_store_limit_stops_after_top_connected_paths(self):
+        kg = {
+            "A": {"r1": ["Z"], "r2": ["Y"], "r3": ["X"]},
+        }
+        retriever = DeterministicPathRetriever(kg)
+        relation_paths = {"A": [["r1"], ["r2"], ["r3"]]}
+        full_groups, _ = retriever.search(["A", "Z", "Y", "X"], relation_paths)
+        limited_groups, diagnostics = retriever.search(
+            ["A", "Z", "Y", "X"],
+            relation_paths,
+            store_max_paths=2,
+        )
+
+        self.assertEqual(limited_groups["connected"], full_groups["connected"][:2])
+        self.assertEqual(limited_groups["walkable"], [])
+        self.assertEqual(diagnostics["search_stopped_after_connected_limit"], 1)
+
     def test_relation_budget_one_matches_no_repeat_constraint(self):
         # k=1 tái lập ràng buộc permutations cũ: không lặp relation.
         sequences = build_relation_sequences(["r1", "r2"], hop=3, relation_budget=1)
@@ -153,6 +191,23 @@ class FaicoLiteRetrievalTest(unittest.TestCase):
                 test_candidates = pickle.load(handle)
             self.assertIn(["A", "r1", "B", "r2", "Z"], test_candidates[test_claim]["connected"])
             self.assertFalse((output_dir / "train_candid_paths.bin").exists())
+
+            test_only_dir = output_dir / "r2"
+            test_only_outputs = prepare_input(
+                data_path=str(data_dir),
+                kg_path=str(kg_path),
+                n_candid="2",
+                retrieval_mode="faico_lite",
+                output_dir=str(test_only_dir),
+                run_name="r2",
+                include_shorter_paths=True,
+                test_only_candidates=True,
+                relation_prediction_path=str(relation_prediction_path),
+                hop_prediction_path=str(hop_prediction_path),
+            )
+            self.assertTrue(Path(test_only_outputs["test"]).is_file())
+            self.assertFalse(Path(test_only_outputs["train"]).exists())
+            self.assertFalse(Path(test_only_outputs["dev"]).exists())
 
             audit_outputs = prepare_input(
                 data_path=str(data_dir),

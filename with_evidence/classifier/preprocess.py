@@ -173,6 +173,7 @@ def _retrieve_faico_lite(
     relation_paths,
     relation_budget: int,
     dominance_audit: bool,
+    store_max_paths=None,
     allowed_relations=None,
 ):
     """Lấy full path; nếu bật R4 thì audit raw dominance của Faico.
@@ -187,6 +188,7 @@ def _retrieve_faico_lite(
         entities,
         relation_paths,
         allowed_relations=allowed_relations if dominance_audit else None,
+        store_max_paths=store_max_paths,
     )
 
     if not dominance_audit or allowed_relations is None:
@@ -234,6 +236,8 @@ def prepare_input(
     relation_budget=1,
     dominance_audit=False,
     report_max_paths=32,
+    store_max_paths=None,
+    test_only_candidates=False,
     relation_prediction_path=None,
     hop_prediction_path=None,
     overwrite=False,
@@ -255,6 +259,13 @@ def prepare_input(
         raise ValueError("relation_budget must be at least 1")
     if report_max_paths < 1:
         raise ValueError("report_max_paths must be at least 1")
+    if store_max_paths is not None and store_max_paths < 1:
+        raise ValueError("store_max_paths must be at least 1 when provided")
+    if dominance_audit and store_max_paths is not None:
+        raise ValueError(
+            "store_max_paths cannot be combined with dominance_audit because R4 "
+            "must compare complete candidate sets."
+        )
 
     if relation_prediction_path is None:
         relation_prediction_path = (
@@ -264,13 +275,17 @@ def prepare_input(
         hop_prediction_path = "../retrieve/model/hop_predict/predictions_hop.json"
 
     outputs = _candidate_output_paths(output_dir, n_candid, run_name)
+    candidate_splits = ("test",) if test_only_candidates else ("train", "dev", "test")
     if retrieval_mode == "faico_lite" and not overwrite:
         # Không vô tình ghi đè một thí nghiệm đã chạy xong. Muốn chạy lại cùng
         # tên thì người dùng phải chủ động truyền --overwrite ở script CLI.
         existing_outputs = [
-            path for path in outputs.values()
-            if os.path.exists(path)
+            outputs[split] for split in candidate_splits if os.path.exists(outputs[split])
         ]
+        existing_outputs.extend(
+            path for name, path in outputs.items()
+            if name in {"report", "manifest"} and os.path.exists(path)
+        )
         if existing_outputs:
             raise FileExistsError(
                 "Refusing to overwrite an existing Faico-Lite run. "
@@ -291,6 +306,8 @@ def prepare_input(
             "relation_budget": int(relation_budget),
             "dominance_audit": bool(dominance_audit),
             "report_max_paths": int(report_max_paths),
+            "store_max_paths": store_max_paths,
+            "test_only_candidates": bool(test_only_candidates),
         },
         "splits": {},
     }
@@ -306,9 +323,12 @@ def prepare_input(
             evidence,
             relation_budget=relation_budget,
             dominance_audit=False,
+            store_max_paths=store_max_paths,
         )
 
     for split in ("train", "dev"):
+        if split not in candidate_splits:
+            continue
         split_path = os.path.join(data_path, f"factkg_{split}.pickle")
         with open(split_path, "rb") as handle:
             database = pkl.load(handle)
@@ -326,60 +346,62 @@ def prepare_input(
         split_stats["elapsed_seconds"] = round(perf_counter() - split_started, 3)
         report["splits"][split] = dict(split_stats)
 
-    relation_predictions, hop_predictions = _load_test_predictions(
-        relation_prediction_path,
-        hop_prediction_path,
-    )
-    with open(os.path.join(data_path, "factkg_test.pickle"), "rb") as handle:
-        test_database = pkl.load(handle)
+    if "test" in candidate_splits:
+        relation_predictions, hop_predictions = _load_test_predictions(
+            relation_prediction_path,
+            hop_prediction_path,
+        )
+        with open(os.path.join(data_path, "factkg_test.pickle"), "rb") as handle:
+            test_database = pkl.load(handle)
 
-    test_candidates = {}
-    test_stats = _new_split_stats(report_max_paths)
-    test_started = perf_counter()
-    for claim, example in tqdm(test_database.items(), total=len(test_database), desc="test: candidates"):
-        if claim not in relation_predictions:
-            raise KeyError(f"Test claim is missing from relation predictions: {claim!r}")
-        if claim not in hop_predictions:
-            raise KeyError(f"Test claim is missing from hop predictions: {claim!r}")
+        test_candidates = {}
+        test_stats = _new_split_stats(report_max_paths)
+        test_started = perf_counter()
+        for claim, example in tqdm(test_database.items(), total=len(test_database), desc="test: candidates"):
+            if claim not in relation_predictions:
+                raise KeyError(f"Test claim is missing from relation predictions: {claim!r}")
+            if claim not in hop_predictions:
+                raise KeyError(f"Test claim is missing from hop predictions: {claim!r}")
 
-        predicted_relations = relation_predictions[claim]
-        predicted_hop = hop_predictions[claim]
-        if retrieval_mode == "legacy":
-            relation_paths = list(permutations(predicted_relations, r=predicted_hop))
-            relation_paths_by_entity = {
-                entity: relation_paths for entity in example["Entity_set"]
-            }
-            groups = legacy_retriever.search(example["Entity_set"], relation_paths_by_entity)
-            diagnostics = {}
-        else:
-            # Test không có Evidence gold. R1/R2/R3 khác nhau chính ở đây:
-            # R1: exact H, k=1; R2: include_shorter_paths; R3: k=2.
-            relation_paths = build_relation_sequences(
-                predicted_relations,
-                predicted_hop,
-                include_shorter_paths=include_shorter_paths,
-                relation_budget=relation_budget,
-            )
-            relation_paths_by_entity = {
-                entity: relation_paths for entity in example["Entity_set"]
-            }
-            groups, diagnostics = _retrieve_faico_lite(
-                raw_kg,
-                example["Entity_set"],
-                relation_paths_by_entity,
-                relation_budget=relation_budget,
-                dominance_audit=dominance_audit,
-                allowed_relations=predicted_relations,
-            )
-            diagnostics["generated_relation_sequences"] = len(relation_paths)
-        test_candidates[claim] = groups
-        _record_split_stats(test_stats, diagnostics, report_max_paths)
+            predicted_relations = relation_predictions[claim]
+            predicted_hop = hop_predictions[claim]
+            if retrieval_mode == "legacy":
+                relation_paths = list(permutations(predicted_relations, r=predicted_hop))
+                relation_paths_by_entity = {
+                    entity: relation_paths for entity in example["Entity_set"]
+                }
+                groups = legacy_retriever.search(example["Entity_set"], relation_paths_by_entity)
+                diagnostics = {}
+            else:
+                # Test khong co Evidence gold. R1/R2/R3 khac nhau chinh o day:
+                # R1: exact H, k=1; R2: include_shorter_paths; R3: k=2.
+                relation_paths = build_relation_sequences(
+                    predicted_relations,
+                    predicted_hop,
+                    include_shorter_paths=include_shorter_paths,
+                    relation_budget=relation_budget,
+                )
+                relation_paths_by_entity = {
+                    entity: relation_paths for entity in example["Entity_set"]
+                }
+                groups, diagnostics = _retrieve_faico_lite(
+                    raw_kg,
+                    example["Entity_set"],
+                    relation_paths_by_entity,
+                    relation_budget=relation_budget,
+                    dominance_audit=dominance_audit,
+                    store_max_paths=store_max_paths,
+                    allowed_relations=predicted_relations,
+                )
+                diagnostics["generated_relation_sequences"] = len(relation_paths)
+            test_candidates[claim] = groups
+            _record_split_stats(test_stats, diagnostics, report_max_paths)
 
-    if len(test_candidates) != len(test_database):
-        raise RuntimeError("test: candidate count does not match data count")
-    _write_split(outputs["test"], test_candidates)
-    test_stats["elapsed_seconds"] = round(perf_counter() - test_started, 3)
-    report["splits"]["test"] = dict(test_stats)
+        if len(test_candidates) != len(test_database):
+            raise RuntimeError("test: candidate count does not match data count")
+        _write_split(outputs["test"], test_candidates)
+        test_stats["elapsed_seconds"] = round(perf_counter() - test_started, 3)
+        report["splits"]["test"] = dict(test_stats)
 
     manifest = {
         "created_at_utc": report["created_at_utc"],
@@ -393,7 +415,7 @@ def prepare_input(
         "outputs": {
             name: _file_fingerprint(path)
             for name, path in outputs.items()
-            if name in {"train", "dev", "test"}
+            if name in candidate_splits
         },
     }
     with open(outputs["report"], "w", encoding="utf-8") as handle:

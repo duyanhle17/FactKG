@@ -85,6 +85,7 @@ parser.add_argument('--pair_batch_size', default=1, type=int, help='Claim batch 
 parser.add_argument('--max_paths', default=None, type=int, help='First K paths; default is all for E0 and 32 for E1/E2; 0 always means all')
 parser.add_argument('--pair_max_length', default=128, type=int, help='Maximum tokens for each [CLS] Claim [SEP] Path [SEP] pair')
 parser.add_argument('--gradient_accumulation_steps', default=0, type=int, help='Optimizer accumulation steps; 0 automatically matches the E0 effective claim batch')
+parser.add_argument('--amp', action='store_true', help='Use CUDA FP16 automatic mixed precision for pair-model training/evaluation')
 parser.add_argument('--seed', default=42, type=int, help='Random seed used by Python, NumPy and PyTorch')
 parser.add_argument('--skip_prepare_input', action='store_true', help='Reuse existing candidate .bin artifacts instead of regenerating them')
 parser.add_argument('--prepare_only', action='store_true', help='Generate candidate artifacts and exit before training')
@@ -777,6 +778,11 @@ model = {
     "gearlite":GEARLiteClassifier,
 }[args.model_cls]().to(DEVICE)
 
+use_amp = bool(args.amp and DEVICE.type == "cuda")
+if args.amp and not use_amp:
+    print("[Warning] --amp requested but CUDA is unavailable; using full precision.")
+scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
+
 # E2 initializes an extra attention module after the shared BERT/MLP. Reset the
 # training RNG so that this extra initialization does not shift BERT dropout
 # randomness relative to E1 when both runs use the same seed.
@@ -846,8 +852,9 @@ else:
         optimizer.zero_grad(set_to_none=True)
         accumulated_batches = 0
         for i, batch in tqdm(enumerate(train_loader), total=len(train_loader), desc=f"Train {epoch}", leave=False):
-            loss, logit = model(batch)
-            loss.backward()
+            with torch.autocast(device_type=DEVICE.type, dtype=torch.float16, enabled=use_amp):
+                loss, logit = model(batch)
+            scaler.scale(loss).backward()
             accumulated_batches += 1
 
             should_update = (
@@ -857,10 +864,12 @@ else:
             if should_update:
                 # Average gradients over the actual number of accumulated batches,
                 # including the shorter final group at the end of an epoch.
+                scaler.unscale_(optimizer)
                 for parameter in model.parameters():
                     if parameter.grad is not None:
                         parameter.grad.div_(accumulated_batches)
-                optimizer.step()
+                scaler.step(optimizer)
+                scaler.update()
                 optimizer.zero_grad(set_to_none=True)
                 accumulated_batches = 0
 
@@ -883,7 +892,8 @@ else:
             gts = list()
             dev_predictions = list()
             for i, batch in tqdm(enumerate(dev_loader), total=len(dev_loader), desc="Dev", leave=False):
-                _, logit = model(batch)
+                with torch.autocast(device_type=DEVICE.type, dtype=torch.float16, enabled=use_amp):
+                    _, logit = model(batch)
                 pred = logit.max(dim=1).indices.bool()
                 gt = batch["label"].bool()
                 score = pred == gt
@@ -903,6 +913,23 @@ else:
                 name: value.detach().cpu().clone()
                 for name, value in model.state_dict().items()
             }
+            # Ghi ngay checkpoint dev tốt nhất. Neu nguoi dung dung run o
+            # epoch sau, checkpoint cua epoch tot nhat da hoan tat van co the
+            # dung voi --test_only thay vi mat toan bo tien trinh train.
+            torch.save(
+                {
+                    "model_state_dict": best_param,
+                    "best_epoch": best_epoch,
+                    "best_dev_accuracy": best,
+                    "model_cls": args.model_cls,
+                    "seed": args.seed,
+                },
+                best_checkpoint_path,
+            )
+            print(
+                f"Saved current best-dev checkpoint: epoch={best_epoch}, "
+                f"dev_acc={best:.4f} -> {best_checkpoint_path}"
+            )
             # Prediction dev phải đi cùng chính epoch đã tạo best_param.
             with open(valid_prediction_path, "wb") as pkf:
                 result = {
@@ -945,7 +972,8 @@ with torch.no_grad():
     predictions = list()
     for i, batch in tqdm(enumerate(test_loader), total=len(test_loader), desc=f"Test", leave=False):
         rtype = batch.pop("type")
-        _, logit = model(batch)
+        with torch.autocast(device_type=DEVICE.type, dtype=torch.float16, enabled=use_amp):
+            _, logit = model(batch)
         pred = logit.max(dim=1).indices.bool()
         gt = batch["label"].bool()
         score = pred==gt

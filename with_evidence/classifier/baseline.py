@@ -63,8 +63,8 @@ parser.add_argument('--lr', default=5e-5, type=float, help='')
 parser.add_argument(
     '--model_cls',
     default="cat",
-    choices=("sent", "cat", "mean", "gearlite"),
-    help='sent: claim-only; cat: E0; mean: E1 Pair+Mean; gearlite: E2 Pair+Attention',
+    choices=("sent", "cat", "mean", "gearlite", "gearlite_v2"),
+    help='sent: claim-only; cat: E0; mean: E1 Pair+Mean; gearlite: E2 Pair+Attention; gearlite_v2: E3 Pair+ClaimConditionedAttention',
 )
 parser.add_argument('--epoch', default=10, type=int, help='')
 # parser.add_argument('--db_name', default="", type=str, help='')
@@ -102,8 +102,8 @@ args = parser.parse_args()
 
 if args.max_paths is None:
     # Preserve the original README behavior for E0 while giving pair models a
-    # finite, safer default. Controlled E0/E1/E2 runs should pass K explicitly.
-    args.max_paths = 32 if args.model_cls in ("mean", "gearlite") else 0
+    # finite, safer default. Controlled E0/E1/E2/E3 runs should pass K explicitly.
+    args.max_paths = 32 if args.model_cls in ("mean", "gearlite", "gearlite_v2") else 0
 
 if args.max_paths < 0:
     parser.error('--max_paths must be >= 0')
@@ -140,7 +140,7 @@ if torch.cuda.is_available():
 
 PT_CLS = "bert-base-cased"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-PAIR_MODEL_NAMES = {"mean", "gearlite"}
+PAIR_MODEL_NAMES = {"mean", "gearlite", "gearlite_v2"}
 
 
 def _reasoning_type(type_names):
@@ -769,6 +769,76 @@ class GEARLiteClassifier(IndependentPathClassifierBase):
 # [GEAR-LITE E1/E2 END]
 
 
+# ============================================================
+# [GEAR-LITE E3 START] Claim-conditioned attention (GEAR-style aggregator)
+# Unlike E2, E3 concatenates an explicit claim vector with each path vector
+# before computing the attention score:  score_j = MLP([claim || h_j]).
+# This follows the original GEAR paper's aggregator formula and gives the
+# attention layer direct access to claim-level signals (e.g. negation words)
+# when deciding which paths are relevant.
+# ============================================================
+class GEARLiteV2Classifier(IndependentPathClassifierBase):
+    """E3: Pair encoding + claim-conditioned masked path attention.
+
+    Key difference from E2 (GEARLiteClassifier):
+    - E2 computes  score_j = MLP(h_j)           — path-only scoring
+    - E3 computes  score_j = MLP([claim || h_j]) — claim-conditioned scoring
+
+    The claim vector is derived as the masked mean of all path vectors. Since
+    each h_i = BERT([CLS] Claim [SEP] Path_i [SEP]), the mean over valid paths
+    acts as a stable, claim-dominated representation that is consistent across
+    all K paths for the same claim.
+    """
+
+    def __init__(self):
+        super().__init__()
+        # Claim-conditioned scorer: [claim(768) || path(768)] -> 64 -> 1
+        self.path_attention = nn.Sequential(
+            nn.Linear(self.config.hidden_size * 2, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1),
+        )
+        self.last_attention_weights = None
+
+    def forward(self, inputs):
+        path_vectors = self.encode_pairs(inputs)   # [B, K, H]
+        path_mask = inputs["path_mask"].bool()      # [B, K]
+
+        # --- Derive a stable claim representation ---
+        # Mean-pool over valid path vectors. Each h_i already contains the
+        # claim via pair BERT; averaging K of them yields a claim-dominated
+        # vector because the claim tokens are shared across all K inputs.
+        mask_float = path_mask.to(path_vectors.dtype).unsqueeze(-1)  # [B, K, 1]
+        claim_vector = (
+            (path_vectors * mask_float).sum(dim=1)
+            / mask_float.sum(dim=1).clamp_min(1.0)
+        )  # [B, H]
+
+        # --- Claim-conditioned attention scoring ---
+        # Broadcast claim to [B, K, H] then concat with path: [B, K, 2H]
+        claim_expanded = claim_vector.unsqueeze(1).expand_as(path_vectors)
+        conditioned_input = torch.cat([claim_expanded, path_vectors], dim=-1)
+
+        attention_scores = self.path_attention(conditioned_input).squeeze(-1)  # [B, K]
+        attention_scores = attention_scores.masked_fill(
+            ~path_mask, torch.finfo(attention_scores.dtype).min
+        )
+        attention_weights = torch.softmax(attention_scores, dim=1)
+
+        # Defensive renormalization (same as E2).
+        attention_weights = attention_weights * path_mask.to(attention_weights.dtype)
+        attention_weights = attention_weights / attention_weights.sum(
+            dim=1, keepdim=True
+        ).clamp_min(torch.finfo(attention_weights.dtype).eps)
+
+        pooled_evidence = torch.sum(
+            path_vectors * attention_weights.unsqueeze(-1), dim=1
+        )  # [B, H]
+        self.last_attention_weights = attention_weights.detach()
+        return self.classify(pooled_evidence, inputs["label"])
+# [GEAR-LITE E3 END]
+
+
 model = {
     "sent":SentenceClassifier,
     "cat":ConcatClassifier,
@@ -776,6 +846,8 @@ model = {
     "mean":IndependentPathMeanClassifier,
     # [GEAR-LITE E2] Pair encoder + masked attention (GEAR-Lite v1).
     "gearlite":GEARLiteClassifier,
+    # [GEAR-LITE E3] Pair encoder + claim-conditioned attention (GEAR-Lite v2).
+    "gearlite_v2":GEARLiteV2Classifier,
 }[args.model_cls]().to(DEVICE)
 
 use_amp = bool(args.amp and DEVICE.type == "cuda")

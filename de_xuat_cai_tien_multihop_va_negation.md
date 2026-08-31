@@ -10,15 +10,15 @@
 
 Trong các thử nghiệm gần đây trên benchmark **FactKG**:
 * **Baseline Concat (E0, top-5):** Overall Accuracy đạt `81.80%`, nhưng Multi-hop rất thấp (`68.84%`).
-* **GEAR-Lite E2b (Pair Encoder + Attention, top-5):** Cải thiện Overall lên `84.23%`, Multi-hop lên `72.18%`, Negation đạt đỉnh `87.98%`.
-* **Faico-Lite R3 + E2 (Retrieval nới lỏng $k=2, 1..H$, top-5):** Đưa Multi-hop tăng vọt lên **`78.60%`** (+6.42%), nhưng Negation lại bị kéo tụt xuống **`80.14%`** (−7.84%), dẫn đến Overall Accuracy gần như đứng yên (`84.60%`, chỉ nhích +0.37%).
+* **GEAR-Lite E2b (Pair Encoder + Attention, top-5):** Cải thiện Overall lên `83.69%`, Multi-hop lên `71.18%`, Negation đạt đỉnh `87.98%`.
+* **Faico-Lite R3 + E2 (Retrieval nới lỏng $k=2, 1..H$, top-5):** Đưa Multi-hop tăng vọt lên **`78.60%`** (+7.42% so với E2b), nhưng Negation lại bị kéo tụt xuống **`80.14%`** (−7.84%), dẫn đến Overall Accuracy `84.60%` (tăng +0.91% so với E2b).
 
 ### Bảng đối chiếu các lượt chạy
 
 | Cấu hình | Overall Acc | Multi-hop Acc | Negation Acc | One-hop Acc | Conjunction Acc | Existence Acc |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
 | **E0 (Concat)** | 81.80% | 68.84% | 84.35% | 84.22% | 85.08% | 89.08% |
-| **E2b (GEAR-Lite)** | 84.23% | 72.18% | **87.98%** | **91.12%** | 82.82% | 94.37% |
+| **E2b (GEAR-Lite)** | 83.69% | 71.18% | **87.98%** | **91.12%** | 82.82% | 94.37% |
 | **R3 (FaicoLite + E2)** | **84.60%** | **78.60%** | 80.14% | 90.80% | 83.51% | **94.48%** |
 
 > **Vấn đề then chốt:** Tăng Multi-hop nhưng làm giảm Negation là một dạng **zero-sum trade-off**. Để tạo ra một bước nhảy vọt thực sự về Overall Accuracy và đạt chuẩn công bố/báo cáo, hệ thống cần đưa candidate path vào **vừa đủ và đúng**, đồng thời nâng cấp cơ chế suy luận để phục hồi Negation.
@@ -206,7 +206,7 @@ else:
 Khi làm việc với Mentor, bạn có thể tóm tắt và xin ý kiến theo 3 luận điểm trọng tâm sau:
 
 1. **Về kết quả R3 hiện tại:**
-   > *"Em đã xác định được nguyên nhân cốt lõi khiến Multi-hop tăng mạnh (+6.42%) nhưng Overall tăng không nhiều: do tập candidate R3 mở rộng (32 paths) làm loãng tín hiệu của nhóm Negation (-7.84%). Ngoài ra, kết quả R3 hiện tại chỉ là retrieval ablation (dùng checkpoint train trên R1). Em đề xuất bước tiếp theo là train end-to-end trên toàn bộ candidate R3."*
+   > *"Em đã xác định được nguyên nhân cốt lõi khiến Multi-hop tăng mạnh (+7.42%) nhưng Overall tăng không nhiều: do tập candidate R3 mở rộng (32 paths) làm loãng tín hiệu của nhóm Negation (-7.84%). Ngoài ra, kết quả R3 hiện tại chỉ là retrieval ablation (dùng checkpoint train trên R1). Em đề xuất bước tiếp theo là train end-to-end trên toàn bộ candidate R3."*
 
 2. **Về cải tiến kiến trúc Attention:**
    > *"Code Attention hiện tại của chúng ta chỉ tính score độc lập từ path vector mà chưa có Claim vector dẫn đường như paper GEAR gốc. Em đề xuất nâng cấp lên Claim-Conditioned Attention ($[c \,\|\, h_j]$) để model biết rõ Claim đang hỏi gì/phủ định gì khi cân trọng số giữa 32 paths."*

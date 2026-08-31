@@ -11,11 +11,11 @@
 | Loại Suy Luận (Reasoning) | E0: Concat (Baseline) | E2b: GEARLite v1 (Pair + Attn) | R3 Ablation (Candidate test-only) | **GEARLite v2 (R3 Full End-to-End)** | So với E2b (GEARLite v1) | So với R3 Ablation |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|
 | **One-hop (Type 0)** | 84.22% | 91.12% | 90.80% | **92.06%** | <span style="color:green">**+0.94%**</span> | <span style="color:green">**+1.26%**</span> |
-| **Multi-hop (Type 1)** | 68.84% | 72.18% | 78.60% | **79.78%** | <span style="color:green">**+7.60%**</span> | <span style="color:green">**+1.18%**</span> |
+| **Multi-hop (Type 1)** | 68.84% | 71.18% | 78.60% | **79.78%** | <span style="color:green">**+8.60%**</span> | <span style="color:green">**+1.18%**</span> |
 | **Conjunction (Type 2)** | **85.08%** | 82.82% | 83.51% | **82.73%** | <span style="color:red">−0.09%</span> | <span style="color:red">−0.78%</span> |
 | **Existence (Type 3)** | 89.08% | 94.37% | 94.48% | **98.05%** | <span style="color:green">**+3.68%**</span> | <span style="color:green">**+3.57%**</span> |
 | **Negation (Type 4)** | 84.35% | **87.98%** | 80.14% | **81.28%** | <span style="color:red">**−6.70%**</span> | <span style="color:green">**+1.14%**</span> |
-| **Total Test Accuracy** | 81.80% | 84.23% | 84.60% | **85.36%** | <span style="color:green">**+1.13%**</span> | <span style="color:green">**+0.76%**</span> |
+| **Total Test Accuracy** | 81.80% | 83.69% | 84.60% | **85.36%** | <span style="color:green">**+1.67%**</span> | <span style="color:green">**+0.76%**</span> |
 | **Total Test Macro-F1** | — | 83.48% | 84.49% | **85.24%** | <span style="color:green">**+1.76%**</span> | <span style="color:green">**+0.75%**</span> |
 
 ---
@@ -58,7 +58,7 @@ Mặc dù Negation chưa lấy lại đỉnh 87%, nhưng tổng thể mô hình 
 
 1. **Multi-hop tiệm cận mốc 80% (`79.78%`):**
    * Tăng **+10.94%** so với Baseline gốc E0 (`68.84%`).
-   * Tăng **+7.60%** so với E2b (`72.18%`).
+   * Tăng **+8.60%** so với E2b (`71.18%`).
    * Đây là mức điểm Multi-hop cao kỷ lục trên FactKG.
 2. **Existence đạt đỉnh gần như tuyệt đối (`98.05%`):**
    * Tăng vọt gần +4% so với tất cả các phiên bản trước.

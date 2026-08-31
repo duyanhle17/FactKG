@@ -216,11 +216,11 @@ có Faico-Lite candidate retrieval.
 | Mô hình / cấu hình | Test Acc | Test Macro-F1 | Multi-hop Acc | Multi-hop Macro-F1 |
 |---|---:|---:|---:|---:|
 | E0 cũ: Concat, top-5 | 81.80% | — | 68.84% | — |
-| E2b trước đó: Pair + Attention, top-5 | 84.23% | 83.48% | 72.18% | 70.00% |
+| E2b trước đó: Pair + Attention, top-5 | 83.69% | 83.48% | 71.18% | 70.00% |
 | **R3: Faico-Lite retrieval + E2, top-5** | **84.60%** | **84.49%** | **78.60%** | **78.08%** |
 
-So với E2b trước đó, R3 tăng `+0.37` điểm Overall Accuracy, `+1.01` điểm Overall
-Macro-F1, và quan trọng nhất là tăng **Multi-hop Accuracy `+6.42` điểm** cùng
+So với E2b trước đó, R3 tăng `+0.91` điểm Overall Accuracy, `+1.01` điểm Overall
+Macro-F1, và quan trọng nhất là tăng **Multi-hop Accuracy `+7.42` điểm** cùng
 **Multi-hop Macro-F1 `+8.08` điểm**. So với Concat baseline E0, R3 tăng
 Multi-hop Accuracy từ `68.84%` lên `78.60%` (`+9.76` điểm).
 

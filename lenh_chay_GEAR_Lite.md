@@ -149,6 +149,90 @@ python baseline.py --data_path "$DATA_DIR" --model_cls gearlite --n_candid 3 --m
 - Attention scorer học trọng số cho từng path.
 - Sau đó weighted sum các path vector rồi dự đoán True/False.
 
+### 7.1. Chạy GEARLite v3: Claim riêng + Claim--Path Attention
+
+`gearlite_v3` là ablation của `gearlite_v2`. Mỗi claim được encode riêng để tạo
+vector `c`, nhưng attention vẫn chấm từng path bằng cả claim và path:
+
+```text
+c = BERT([CLS] Claim [SEP])
+h_i = BERT([CLS] Claim [SEP] Path_i [SEP])
+score_i = MLP([c || h_i])
+```
+
+Nếu candidate R3 đã được tạo sẵn, **không chạy lại Graph Retriever**. Dùng đúng
+ba artifact R3 đó và train classifier mới từ đầu:
+
+```bash
+ART_ROOT=/path/to/artifacts/faico_lite_top5
+
+python baseline.py \
+  --data_path "$DATA_DIR" \
+  --model_cls gearlite_v3 \
+  --n_candid 5 \
+  --skip_prepare_input \
+  --train_candid_path "$ART_ROOT/r3/train_candid_paths_r3.bin" \
+  --dev_candid_path "$ART_ROOT/r3/dev_candid_paths_r3.bin" \
+  --test_candid_path "$ART_ROOT/r3/test_candid_paths_top5_r3.bin" \
+  --max_paths 32 \
+  --pair_batch_size 1 \
+  --pair_max_length 128 \
+  --epoch 10 \
+  --lr 5e-5 \
+  --seed 42 \
+  --run_name r3_claim_separate \
+  --output_dir "$ART_ROOT/r3/predictions_claim_separate"
+```
+
+Lệnh này train checkpoint mới của `gearlite_v3` từ BERT pretrained. Không dùng
+checkpoint `gearlite_v2` để tiếp tục train hoặc test V3: tuy hai scorer hiện có
+cùng kích thước tensor, chúng thực hiện cách tạo claim condition khác nhau và
+sẽ làm hỏng ablation. Code cũng chặn nạp nhầm checkpoint có `model_cls` khác.
+Giữ nguyên R3, `K=32`, seed và hyperparameter để chênh lệch điểm phản ánh cách
+tạo vector claim độc lập.
+
+### 7.2. Chạy GEARLite v4: Claim riêng + tóm tắt candidate set
+
+`gearlite_v4` là mô hình lai giữa v2 và v3. Nó vẫn encode Claim riêng để giữ
+tín hiệu ngữ nghĩa/phủ định của v3, nhưng đưa thêm trung bình các path hợp lệ
+vào attention như ngữ cảnh toàn candidate set của v2:
+
+```text
+h_i     = BERT([CLS] Claim [SEP] Path_i [SEP])
+c_claim = BERT([CLS] Claim [SEP])
+c_set   = mean(h_i của các path không padding)
+score_i = MLP([c_claim || c_set || h_i])
+```
+
+Lệnh dưới đây dùng đúng R3 Full top-5 và hyperparameter của lượt v2/v3 đang
+so sánh. Chỉ train lại classifier; không chạy lại R3 hay graph retrieval.
+
+```bash
+ART_ROOT=/path/to/artifacts/faico_lite_top5
+
+python baseline.py \
+  --data_path "$DATA_DIR" \
+  --model_cls gearlite_v4 \
+  --n_candid 5 \
+  --skip_prepare_input \
+  --train_candid_path "$ART_ROOT/r3_full/train_candid_paths_r3_full.bin" \
+  --dev_candid_path "$ART_ROOT/r3_full/dev_candid_paths_r3_full.bin" \
+  --test_candid_path "$ART_ROOT/r3_full/test_candid_paths_top5_r3_full.bin" \
+  --max_paths 32 \
+  --pair_batch_size 2 \
+  --pair_max_length 128 \
+  --gradient_accumulation_steps 16 \
+  --epoch 5 \
+  --lr 5e-5 \
+  --seed 42 \
+  --amp \
+  --run_name r3_full_v4_hybrid_top5 \
+  --output_dir "$ART_ROOT/r3_full/predictions_hybrid"
+```
+
+Không nạp checkpoint v2/v3 vào v4: tầng scorer của v4 có input `3H` thay vì
+`2H`, nên v4 luôn phải train checkpoint mới từ BERT pretrained.
+
 ## 8. Chạy nhiều seed nếu cần
 
 Ví dụ chạy 3 seed:

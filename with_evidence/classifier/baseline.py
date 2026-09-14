@@ -63,8 +63,17 @@ parser.add_argument('--lr', default=5e-5, type=float, help='')
 parser.add_argument(
     '--model_cls',
     default="cat",
-    choices=("sent", "cat", "mean", "gearlite", "gearlite_v2"),
-    help='sent: claim-only; cat: E0; mean: E1 Pair+Mean; gearlite: E2 Pair+Attention; gearlite_v2: E3 Pair+ClaimConditionedAttention',
+    choices=(
+        "sent", "cat", "mean", "gearlite", "gearlite_v2", "gearlite_v3",
+        "gearlite_v4",
+    ),
+    help=(
+        'sent: claim-only; cat: E0; mean: E1 Pair+Mean; '
+        'gearlite: E2 Pair+Attention; '
+        'gearlite_v2: E3 Pair+Attention with path-mean claim condition; '
+        'gearlite_v3: E4 Pair+Attention with separately encoded claim condition; '
+        'gearlite_v4: E5 hybrid attention with separate claim and path-set mean'
+    ),
 )
 parser.add_argument('--epoch', default=10, type=int, help='')
 # parser.add_argument('--db_name', default="", type=str, help='')
@@ -102,8 +111,10 @@ args = parser.parse_args()
 
 if args.max_paths is None:
     # Preserve the original README behavior for E0 while giving pair models a
-    # finite, safer default. Controlled E0/E1/E2/E3 runs should pass K explicitly.
-    args.max_paths = 32 if args.model_cls in ("mean", "gearlite", "gearlite_v2") else 0
+    # finite, safer default. Controlled E0/E1/E2/E3/E4/E5 runs should pass K explicitly.
+    args.max_paths = 32 if args.model_cls in (
+        "mean", "gearlite", "gearlite_v2", "gearlite_v3", "gearlite_v4",
+    ) else 0
 
 if args.max_paths < 0:
     parser.error('--max_paths must be >= 0')
@@ -140,7 +151,7 @@ if torch.cuda.is_available():
 
 PT_CLS = "bert-base-cased"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-PAIR_MODEL_NAMES = {"mean", "gearlite", "gearlite_v2"}
+PAIR_MODEL_NAMES = {"mean", "gearlite", "gearlite_v2", "gearlite_v3", "gearlite_v4"}
 
 
 def _reasoning_type(type_names):
@@ -315,9 +326,12 @@ class DataCollator:
 
 
 # ============================================================
-# [GEAR-LITE E1/E2 START] Claim-Path pair collator
+# [GEAR-LITE E1/E2/E3/E4/E5 START] Claim-Path pair collator
 # Output shapes are [B, K, L] plus path_mask [B, K]. Padding paths are
 # tokenized only to make a rectangular tensor and are ignored by the mask.
+# E4/v3 and E5/v4 additionally receive `claim_inputs` with shape [B, L]. This
+# is the same raw claim, tokenized without any path, so its encoder vector is
+# independent of candidate-path noise.
 # ============================================================
 @dataclass
 class PairDataCollator:
@@ -364,8 +378,22 @@ class PairDataCollator:
             key: value.reshape(batch_size, path_count, -1).to(DEVICE)
             for key, value in tokenized_pairs.items()
         }
+
+        # [GEAR-LITE E4/E5] Tokenize each claim once for the separate-claim
+        # encoder. E1/E2/E3 simply ignore this field, keeping their behavior
+        # and checkpoints unchanged. The encoder itself is shared in E4/E5.
+        tokenized_claims = self.tokenizer(
+            [feature["c"] for feature in features],
+            padding="longest",
+            max_length=self.max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        claim_inputs = {key: value.to(DEVICE) for key, value in tokenized_claims.items()}
+
         batch = {
             "pair_inputs": pair_inputs,
+            "claim_inputs": claim_inputs,
             "path_mask": path_mask.to(DEVICE),
             "label": torch.tensor(
                 [_label_to_int(feature["l"]) for feature in features],
@@ -380,7 +408,7 @@ class PairDataCollator:
                 device=DEVICE,
             )
         return batch
-# [GEAR-LITE E1/E2 END]
+# [GEAR-LITE E1/E2/E3/E4/E5 END]
 
 data_path = args.data_path
 kg_path = args.kg_path
@@ -708,6 +736,29 @@ class IndependentPathClassifierBase(nn.Module):
             )
         return path_vectors
 
+    def encode_claims(self, inputs):
+        """Encode standalone claims with the same BERT and return [B,H].
+
+        This is used by GEARLite v3 and v4. Its representation is independent
+        of candidate paths, unlike v2 where the claim condition is estimated
+        by averaging Claim--Path vectors.
+        """
+        claim_inputs = inputs.get("claim_inputs")
+        if not claim_inputs:
+            raise ValueError(
+                "claim_inputs is required for separate-claim attention; "
+                "use PairDataCollator to build the batch"
+            )
+
+        reference = next(iter(claim_inputs.values()))
+        if reference.ndim != 2:
+            raise ValueError(
+                f"Expected claim input shape [B,L], got {tuple(reference.shape)}"
+            )
+
+        encoder_outputs = self.encoder(**claim_inputs, return_dict=False)
+        return encoder_outputs[0][:, 0]  # [B, H]
+
     def classify(self, pooled_evidence, labels):
         logits = self.shallow_classifier(pooled_evidence)
         loss = self.loss_fct(logits, labels)
@@ -839,6 +890,151 @@ class GEARLiteV2Classifier(IndependentPathClassifierBase):
 # [GEAR-LITE E3 END]
 
 
+# ============================================================
+# [GEAR-LITE E4 START] Separate-claim conditioned attention
+# E4 keeps the exact E3 scoring form score_j = MLP([c || h_j]), but obtains
+# c = BERT([CLS] Claim [SEP]) instead of c = mean_j h_j. The BERT weights are
+# shared: this is one encoder called for claims and Claim--Path pairs, not two
+# independently trained BERT models.
+# ============================================================
+class GEARLiteV3Classifier(IndependentPathClassifierBase):
+    """E4: Pair encoding + separately encoded claim-conditioned attention.
+
+    h_j = BERT([CLS] Claim [SEP] Path_j [SEP])
+    c   = BERT([CLS] Claim [SEP])
+    score_j = MLP([c || h_j])
+
+    The final verifier remains unchanged: it classifies the attention-pooled
+    path vector. This makes E4 a focused ablation of how the claim condition
+    is formed, rather than a simultaneous change to candidate retrieval or the
+    classifier head.
+    """
+
+    def __init__(self):
+        super().__init__()
+        # Same scorer width as E3/v2: [claim(H) || path(H)] -> 64 -> 1.
+        self.path_attention = nn.Sequential(
+            nn.Linear(self.config.hidden_size * 2, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1),
+        )
+        self.last_attention_weights = None
+        self.last_claim_vector = None
+
+    def forward(self, inputs):
+        path_vectors = self.encode_pairs(inputs)  # [B, K, H]
+        claim_vector = self.encode_claims(inputs)  # [B, H], independent of paths
+        path_mask = inputs["path_mask"].bool()  # [B, K]
+
+        if claim_vector.shape != (path_vectors.shape[0], path_vectors.shape[2]):
+            raise ValueError(
+                "Standalone claim vectors must have shape [B,H] matching "
+                f"path vectors [B,K,H]; got {tuple(claim_vector.shape)} and "
+                f"{tuple(path_vectors.shape)}"
+            )
+
+        # [GEAR-LITE E4] Use both the standalone claim representation c and
+        # each Claim--Path representation h_j to score path relevance.
+        claim_expanded = claim_vector.unsqueeze(1).expand_as(path_vectors)
+        conditioned_input = torch.cat([claim_expanded, path_vectors], dim=-1)
+        attention_scores = self.path_attention(conditioned_input).squeeze(-1)
+        attention_scores = attention_scores.masked_fill(
+            ~path_mask, torch.finfo(attention_scores.dtype).min
+        )
+        attention_weights = torch.softmax(attention_scores, dim=1)
+        attention_weights = attention_weights * path_mask.to(attention_weights.dtype)
+        attention_weights = attention_weights / attention_weights.sum(
+            dim=1, keepdim=True
+        ).clamp_min(torch.finfo(attention_weights.dtype).eps)
+
+        pooled_evidence = torch.sum(
+            path_vectors * attention_weights.unsqueeze(-1), dim=1
+        )  # [B, H]
+        self.last_attention_weights = attention_weights.detach()
+        self.last_claim_vector = claim_vector.detach()
+        return self.classify(pooled_evidence, inputs["label"])
+# [GEAR-LITE E4 END]
+
+
+# ============================================================
+# [GEAR-LITE E5 START] Hybrid claim + candidate-set attention
+# E5 is the next ablation after E3/v2 and E4/v3. It retains the independent
+# Claim vector from E4, while restoring E3's summary of all valid candidate
+# paths. Retrieval, path encoder, masked softmax and final verifier stay fixed.
+# ============================================================
+class GEARLiteV4Classifier(IndependentPathClassifierBase):
+    """E5: separate Claim + candidate-set mean + per-path attention.
+
+    h_j     = BERT([CLS] Claim [SEP] Path_j [SEP])
+    c_claim = BERT([CLS] Claim [SEP])
+    c_set   = masked_mean_j(h_j)
+    score_j = MLP([c_claim || c_set || h_j])
+
+    c_claim preserves claim-only semantics such as negation. c_set gives the
+    scorer global context about the candidate pool, which E4/v3 deliberately
+    does not see. The final classifier still receives only the attention-pooled
+    evidence vector, making this a focused attention-scorer ablation.
+    """
+
+    def __init__(self):
+        super().__init__()
+        # [GEAR-LITE E5] Each score receives three H-dimensional vectors:
+        # Claim-only c_claim, candidate-set summary c_set, and path h_j.
+        self.path_attention = nn.Sequential(
+            nn.Linear(self.config.hidden_size * 3, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1),
+        )
+        self.last_attention_weights = None
+        self.last_claim_vector = None
+        self.last_candidate_set_vector = None
+
+    def forward(self, inputs):
+        path_vectors = self.encode_pairs(inputs)  # [B, K, H]
+        claim_vector = self.encode_claims(inputs)  # [B, H], Claim-only
+        path_mask = inputs["path_mask"].bool()  # [B, K]
+
+        if claim_vector.shape != (path_vectors.shape[0], path_vectors.shape[2]):
+            raise ValueError(
+                "Standalone claim vectors must have shape [B,H] matching "
+                f"path vectors [B,K,H]; got {tuple(claim_vector.shape)} and "
+                f"{tuple(path_vectors.shape)}"
+            )
+
+        # [GEAR-LITE E5] Average real paths only. Padding vectors cannot alter
+        # c_set, even when claims in the same batch have different path counts.
+        mask_float = path_mask.to(path_vectors.dtype).unsqueeze(-1)  # [B,K,1]
+        candidate_set_vector = (
+            (path_vectors * mask_float).sum(dim=1)
+            / mask_float.sum(dim=1).clamp_min(1.0)
+        )  # [B,H]
+
+        # [GEAR-LITE E5] score_j = MLP([c_claim || c_set || h_j]).
+        claim_expanded = claim_vector.unsqueeze(1).expand_as(path_vectors)
+        set_expanded = candidate_set_vector.unsqueeze(1).expand_as(path_vectors)
+        conditioned_input = torch.cat(
+            [claim_expanded, set_expanded, path_vectors], dim=-1
+        )  # [B,K,3H]
+        attention_scores = self.path_attention(conditioned_input).squeeze(-1)
+        attention_scores = attention_scores.masked_fill(
+            ~path_mask, torch.finfo(attention_scores.dtype).min
+        )
+        attention_weights = torch.softmax(attention_scores, dim=1)
+        attention_weights = attention_weights * path_mask.to(attention_weights.dtype)
+        attention_weights = attention_weights / attention_weights.sum(
+            dim=1, keepdim=True
+        ).clamp_min(torch.finfo(attention_weights.dtype).eps)
+
+        pooled_evidence = torch.sum(
+            path_vectors * attention_weights.unsqueeze(-1), dim=1
+        )  # [B,H]
+        self.last_attention_weights = attention_weights.detach()
+        self.last_claim_vector = claim_vector.detach()
+        self.last_candidate_set_vector = candidate_set_vector.detach()
+        return self.classify(pooled_evidence, inputs["label"])
+# [GEAR-LITE E5 END]
+
+
 model = {
     "sent":SentenceClassifier,
     "cat":ConcatClassifier,
@@ -848,6 +1044,10 @@ model = {
     "gearlite":GEARLiteClassifier,
     # [GEAR-LITE E3] Pair encoder + claim-conditioned attention (GEAR-Lite v2).
     "gearlite_v2":GEARLiteV2Classifier,
+    # [GEAR-LITE E4] Pair encoder + separately encoded claim-conditioned attention.
+    "gearlite_v3":GEARLiteV3Classifier,
+    # [GEAR-LITE E5] Pair encoder + separate Claim + candidate-set mean attention.
+    "gearlite_v4":GEARLiteV4Classifier,
 }[args.model_cls]().to(DEVICE)
 
 use_amp = bool(args.amp and DEVICE.type == "cuda")
@@ -904,6 +1104,17 @@ if args.test_only:
         raise FileNotFoundError(f"Checkpoint not found: {args.checkpoint_path}")
     loaded_checkpoint = torch.load(args.checkpoint_path, map_location="cpu")
     if isinstance(loaded_checkpoint, dict) and "model_state_dict" in loaded_checkpoint:
+        # Different GEARLite variants can have compatible tensor shapes while
+        # implementing different claim-conditioning computations. Refuse an
+        # accidental cross-model checkpoint load so evaluation remains a valid
+        # architecture ablation. Plain legacy state_dict files remain allowed.
+        checkpoint_model_cls = loaded_checkpoint.get("model_cls")
+        if checkpoint_model_cls and checkpoint_model_cls != args.model_cls:
+            raise ValueError(
+                "Checkpoint model_cls does not match the requested model: "
+                f"checkpoint={checkpoint_model_cls!r}, requested={args.model_cls!r}. "
+                "Train a new checkpoint for a cross-architecture comparison."
+            )
         best_param = loaded_checkpoint["model_state_dict"]
         best_epoch = int(loaded_checkpoint.get("best_epoch", -1))
         best = float(loaded_checkpoint.get("best_dev_accuracy", float("nan")))

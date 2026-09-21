@@ -12,6 +12,7 @@ from tqdm import tqdm
 from transformers import AutoConfig, AutoModel, AutoTokenizer, BertModel, PreTrainedTokenizerBase
 
 from preprocess import prepare_input
+from sparse_ernet import SparseERNet, build_sparse_path_adjacency
 
 try:
     from termcolor import colored
@@ -65,14 +66,15 @@ parser.add_argument(
     default="cat",
     choices=(
         "sent", "cat", "mean", "gearlite", "gearlite_v2", "gearlite_v3",
-        "gearlite_v4",
+        "gearlite_v4", "gearlite_v5",
     ),
     help=(
         'sent: claim-only; cat: E0; mean: E1 Pair+Mean; '
         'gearlite: E2 Pair+Attention; '
         'gearlite_v2: E3 Pair+Attention with path-mean claim condition; '
         'gearlite_v3: E4 Pair+Attention with separately encoded claim condition; '
-        'gearlite_v4: E5 hybrid attention with separate claim and path-set mean'
+        'gearlite_v4: E5 hybrid attention with separate claim and path-set mean; '
+        'gearlite_v5: E6 V4 plus one sparse ERNet message-passing layer'
     ),
 )
 parser.add_argument('--epoch', default=10, type=int, help='')
@@ -111,9 +113,10 @@ args = parser.parse_args()
 
 if args.max_paths is None:
     # Preserve the original README behavior for E0 while giving pair models a
-    # finite, safer default. Controlled E0/E1/E2/E3/E4/E5 runs should pass K explicitly.
+    # finite, safer default. Controlled E0/E1/E2/E3/E4/E5/E6 runs should pass K explicitly.
     args.max_paths = 32 if args.model_cls in (
         "mean", "gearlite", "gearlite_v2", "gearlite_v3", "gearlite_v4",
+        "gearlite_v5",
     ) else 0
 
 if args.max_paths < 0:
@@ -151,7 +154,10 @@ if torch.cuda.is_available():
 
 PT_CLS = "bert-base-cased"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-PAIR_MODEL_NAMES = {"mean", "gearlite", "gearlite_v2", "gearlite_v3", "gearlite_v4"}
+PAIR_MODEL_NAMES = {
+    "mean", "gearlite", "gearlite_v2", "gearlite_v3", "gearlite_v4",
+    "gearlite_v5",
+}
 
 
 def _reasoning_type(type_names):
@@ -193,6 +199,7 @@ class Dataset(torch.utils.data.Dataset):
         labels: list,
         types: list = None,
         max_paths: int = 0,
+        entity_sets: list = None,
     ):
         super().__init__()
         
@@ -202,6 +209,9 @@ class Dataset(torch.utils.data.Dataset):
         self.evis = evis
         self.types = types
         self.max_paths = max_paths
+        # E0/Sentence models do not use Entity_set. Accept it only so the
+        # dataset construction remains uniform with pair models.
+        self.entity_sets = entity_sets
         
         assert len(self.evis) == len(self.claims)
         assert len(self.evis) == len(self.labels)
@@ -239,7 +249,10 @@ class Dataset(torch.utils.data.Dataset):
 # E1/E2 must not flatten all paths into one long evidence string.
 # ============================================================
 class PairDataset(torch.utils.data.Dataset):
-    def __init__(self, split, claims, evis, labels, types=None, max_paths=0):
+    def __init__(
+        self, split, claims, evis, labels, types=None, max_paths=0,
+        entity_sets=None,
+    ):
         super().__init__()
         self.split = split
         self.claims = claims
@@ -247,10 +260,13 @@ class PairDataset(torch.utils.data.Dataset):
         self.labels = labels
         self.types = types
         self.max_paths = max_paths
+        self.entity_sets = entity_sets
 
         assert len(self.evis) == len(self.claims) == len(self.labels)
         if self.types is not None:
             assert len(self.evis) == len(self.types)
+        if self.entity_sets is not None:
+            assert len(self.evis) == len(self.entity_sets)
 
     def __len__(self):
         return len(self.evis)
@@ -260,6 +276,12 @@ class PairDataset(torch.utils.data.Dataset):
             "paths": _ordered_paths(self.evis[i], self.max_paths),
             "c": self.claims[i],
             "l": self.labels[i],
+            # [GEAR-LITE E6] Raw FactKG Entity_set lets the sparse ERNet
+            # distinguish a true shared intermediate from a common claim
+            # anchor. It does not alter tokenization or the V1--V4 models.
+            "claim_entities": (
+                self.entity_sets[i] if self.entity_sets is not None else []
+            ),
         }
         if self.split == "test":
             sample["type"] = _reasoning_type(self.types[i])
@@ -326,7 +348,7 @@ class DataCollator:
 
 
 # ============================================================
-# [GEAR-LITE E1/E2/E3/E4/E5 START] Claim-Path pair collator
+# [GEAR-LITE E1/E2/E3/E4/E5/E6 START] Claim-Path pair collator
 # Output shapes are [B, K, L] plus path_mask [B, K]. Padding paths are
 # tokenized only to make a rectangular tensor and are ignored by the mask.
 # E4/v3 and E5/v4 additionally receive `claim_inputs` with shape [B, L]. This
@@ -338,6 +360,7 @@ class PairDataCollator:
     split: str
     tokenizer: PreTrainedTokenizerBase
     max_length: int = 128
+    include_sparse_adjacency: bool = False
 
     def __call__(self, features):
         batch_size = len(features)
@@ -401,6 +424,17 @@ class PairDataCollator:
                 device=DEVICE,
             ),
         }
+        if self.include_sparse_adjacency:
+            # [GEAR-LITE E6] Construct edges from raw serialized paths, before
+            # BERT tokenization loses entity/relation positions. The helper
+            # returns [B,K,K], leaves padding disconnected, and applies only
+            # self-loop/shared-intermediate/tail-head rules.
+            sparse_adjacency = build_sparse_path_adjacency(
+                paths_per_claim,
+                path_count,
+                [feature.get("claim_entities", []) for feature in features],
+            )
+            batch["sparse_adjacency"] = sparse_adjacency.to(DEVICE)
         if self.split == "test":
             batch["type"] = torch.tensor(
                 [feature["type"] for feature in features],
@@ -408,7 +442,7 @@ class PairDataCollator:
                 device=DEVICE,
             )
         return batch
-# [GEAR-LITE E1/E2/E3/E4/E5 END]
+# [GEAR-LITE E1/E2/E3/E4/E5/E6 END]
 
 data_path = args.data_path
 kg_path = args.kg_path
@@ -464,10 +498,12 @@ with open(train_candid_path, 'rb') as pkf:
 train_claims = list()
 train_evis = list()
 train_labels = list() 
+train_entity_sets = list()
 
 for i, (s, m) in enumerate(db.items()):
     train_claims.append(s)
     train_labels.append(m["Label"])
+    train_entity_sets.append(m.get("Entity_set", []))
     evis = [candids[s]["connected"], candids[s]["walkable"]]
     train_evis.append(evis)
 
@@ -488,10 +524,12 @@ with open(dev_candid_path, 'rb') as pkf:
 dev_claims = list()
 dev_evis = list()
 dev_labels = list()
+dev_entity_sets = list()
 
 for i, (s, m) in enumerate(db.items()):
     dev_claims.append(s)
     dev_labels.append(m["Label"])
+    dev_entity_sets.append(m.get("Entity_set", []))
     evis = [candids[s]["connected"], candids[s]["walkable"]]
     dev_evis.append(evis)
 
@@ -513,9 +551,11 @@ test_claims = list()
 test_evis = list()
 test_labels = list()
 test_types = list()
+test_entity_sets = list()
 for i, (s, m) in enumerate(db.items()):
     test_claims.append(s)
     test_labels.append(m["Label"])
+    test_entity_sets.append(m.get("Entity_set", []))
     evis = [candids[s]["connected"], candids[s]["walkable"]]
     test_evis.append(evis)
     test_types.append(m["types"])
@@ -539,6 +579,12 @@ if is_pair_model and args.max_paths == 0:
         "[Warning] --max_paths=0 encodes every candidate path. "
         "Use a positive K (for example 32) if GPU memory is insufficient."
     )
+    if args.model_cls == "gearlite_v5":
+        print(
+            "[Warning] gearlite_v5 also builds pairwise ERNet scores with "
+            "O(K^2) memory. Keep --max_paths=32 unless an explicit larger-K "
+            "ablation fits the GPU."
+        )
 
 print(
     f"Run config: model={args.model_cls}, device={DEVICE}, seed={args.seed}, "
@@ -549,10 +595,14 @@ print(
 )
 
 train_dataset = dataset_class(
-    "train", train_claims, train_evis, train_labels, max_paths=args.max_paths
+    "train", train_claims, train_evis, train_labels, max_paths=args.max_paths,
+    entity_sets=train_entity_sets,
 )
 if is_pair_model:
-    train_collator = PairDataCollator("train", tokenizer, args.pair_max_length)
+    train_collator = PairDataCollator(
+        "train", tokenizer, args.pair_max_length,
+        include_sparse_adjacency=(args.model_cls == "gearlite_v5"),
+    )
 else:
     train_collator = DataCollator("train", tokenizer)
 
@@ -570,10 +620,14 @@ train_loader = torch.utils.data.DataLoader(
 )
 
 dev_dataset = dataset_class(
-    "dev", dev_claims, dev_evis, dev_labels, max_paths=args.max_paths
+    "dev", dev_claims, dev_evis, dev_labels, max_paths=args.max_paths,
+    entity_sets=dev_entity_sets,
 )
 if is_pair_model:
-    dev_collator = PairDataCollator("dev", tokenizer, args.pair_max_length)
+    dev_collator = PairDataCollator(
+        "dev", tokenizer, args.pair_max_length,
+        include_sparse_adjacency=(args.model_cls == "gearlite_v5"),
+    )
 else:
     dev_collator = DataCollator("dev", tokenizer)
 dev_loader = torch.utils.data.DataLoader(
@@ -593,9 +647,13 @@ test_dataset = dataset_class(
     test_labels,
     test_types,
     max_paths=args.max_paths,
+    entity_sets=test_entity_sets,
 )
 if is_pair_model:
-    test_collator = PairDataCollator("test", tokenizer, args.pair_max_length)
+    test_collator = PairDataCollator(
+        "test", tokenizer, args.pair_max_length,
+        include_sparse_adjacency=(args.model_cls == "gearlite_v5"),
+    )
 else:
     test_collator = DataCollator("test", tokenizer)
 test_loader = torch.utils.data.DataLoader(
@@ -1035,6 +1093,102 @@ class GEARLiteV4Classifier(IndependentPathClassifierBase):
 # [GEAR-LITE E5 END]
 
 
+# ============================================================
+# [GEAR-LITE E6 START] V4 + sparse ERNet message passing
+# E6 preserves V4's Claim-only vector, candidate-set mean and final attention.
+# Its sole architectural change is h_i -> h'_i through one sparse ERNet layer
+# before c_set and attention are computed. This is a FactKG adaptation of GEAR:
+# candidate paths are nodes, while graph edges are built in PairDataCollator.
+# ============================================================
+class GEARLiteV5SparseERNetClassifier(GEARLiteV4Classifier):
+    """E6: V4 attention preceded by one sparse GEAR-style ERNet layer.
+
+    h_i      = BERT([CLS] Claim [SEP] Path_i [SEP])
+    h'_i     = SparseERNet(h_i, graph_edges)
+    c_claim  = BERT([CLS] Claim [SEP])
+    c_set    = masked_mean_i(h'_i)
+    score_i  = MLP([c_claim || c_set || h'_i])
+
+    The scorer and classifier are inherited unchanged from V4. Therefore the
+    V4-versus-V5 comparison isolates message passing between structurally
+    related candidate paths, while retrieval/R3 and final path selection stay
+    fixed.
+    """
+
+    def __init__(self):
+        super().__init__()
+        # One layer is the first, controlled sparse-ERNet ablation. It uses
+        # GEAR's 64-unit pairwise attention MLP without full K-by-K edges.
+        self.sparse_ernet = SparseERNet(
+            hidden_size=self.config.hidden_size,
+            num_layers=1,
+            attention_hidden_size=64,
+        )
+        self.last_sparse_adjacency = None
+
+    def forward(self, inputs):
+        path_vectors = self.encode_pairs(inputs)  # [B,K,H]
+        path_mask = inputs["path_mask"].bool()  # [B,K]
+        sparse_adjacency = inputs.get("sparse_adjacency")
+        if sparse_adjacency is None:
+            raise ValueError(
+                "GEARLite v5 requires sparse_adjacency. Use PairDataCollator "
+                "with include_sparse_adjacency=True."
+            )
+
+        # [GEAR-LITE E6] Related paths exchange messages before the V4
+        # candidate-set summary and final claim-conditioned path attention.
+        refined_path_vectors = self.sparse_ernet(
+            path_vectors, path_mask, sparse_adjacency
+        )  # [B,K,H], h'_i
+        claim_vector = self.encode_claims(inputs)  # [B,H], Claim-only c_claim
+
+        if claim_vector.shape != (
+            refined_path_vectors.shape[0], refined_path_vectors.shape[2]
+        ):
+            raise ValueError(
+                "Standalone claim vectors must match sparse ERNet output; got "
+                f"{tuple(claim_vector.shape)} and "
+                f"{tuple(refined_path_vectors.shape)}"
+            )
+
+        # V4's c_set is intentionally recomputed from the ERNet-updated paths.
+        # Padding is masked, so claims with fewer than K candidates are not
+        # biased toward zero vectors from another item in the batch.
+        mask_float = path_mask.to(refined_path_vectors.dtype).unsqueeze(-1)
+        candidate_set_vector = (
+            (refined_path_vectors * mask_float).sum(dim=1)
+            / mask_float.sum(dim=1).clamp_min(1.0)
+        )  # [B,H]
+
+        claim_expanded = claim_vector.unsqueeze(1).expand_as(refined_path_vectors)
+        set_expanded = candidate_set_vector.unsqueeze(1).expand_as(
+            refined_path_vectors
+        )
+        conditioned_input = torch.cat(
+            [claim_expanded, set_expanded, refined_path_vectors], dim=-1
+        )  # [B,K,3H]
+        attention_scores = self.path_attention(conditioned_input).squeeze(-1)
+        attention_scores = attention_scores.masked_fill(
+            ~path_mask, torch.finfo(attention_scores.dtype).min
+        )
+        attention_weights = torch.softmax(attention_scores, dim=1)
+        attention_weights = attention_weights * path_mask.to(attention_weights.dtype)
+        attention_weights = attention_weights / attention_weights.sum(
+            dim=1, keepdim=True
+        ).clamp_min(torch.finfo(attention_weights.dtype).eps)
+
+        pooled_evidence = torch.sum(
+            refined_path_vectors * attention_weights.unsqueeze(-1), dim=1
+        )  # [B,H]
+        self.last_attention_weights = attention_weights.detach()
+        self.last_claim_vector = claim_vector.detach()
+        self.last_candidate_set_vector = candidate_set_vector.detach()
+        self.last_sparse_adjacency = sparse_adjacency.detach()
+        return self.classify(pooled_evidence, inputs["label"])
+# [GEAR-LITE E6 END]
+
+
 model = {
     "sent":SentenceClassifier,
     "cat":ConcatClassifier,
@@ -1048,6 +1202,8 @@ model = {
     "gearlite_v3":GEARLiteV3Classifier,
     # [GEAR-LITE E5] Pair encoder + separate Claim + candidate-set mean attention.
     "gearlite_v4":GEARLiteV4Classifier,
+    # [GEAR-LITE E6] V4 plus one sparse ERNet layer over candidate paths.
+    "gearlite_v5":GEARLiteV5SparseERNetClassifier,
 }[args.model_cls]().to(DEVICE)
 
 use_amp = bool(args.amp and DEVICE.type == "cuda")

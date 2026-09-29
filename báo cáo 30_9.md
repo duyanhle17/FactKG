@@ -1,53 +1,65 @@
-# Báo cáo 30/9 — kiểm chứng lỗi Conjunction của R3 + GEARLite V4
+# Báo cáo 30/9 — tìm nguyên nhân giảm điểm Conjunction
 
-## 1. Mục tiêu và kết quả đã có
+## 1. Kết quả đã kiểm chứng trên test
 
-GEARLite V4 + R3 Full đạt **84,03% Accuracy / 83,32% Macro-F1** trên 3.069 câu Conjunction test. Mốc E0 Concat top-5 đã được kiểm chứng là **85,08% Accuracy**; hai cấu hình khác cả candidate lẫn kiến trúc, nên chưa thể quy chênh lệch 1,05 điểm phần trăm cho riêng R3 hoặc V4. Mục tiêu kiểm tra lần này là phân biệt **thiếu path trước khi vào V4** với **V4 dùng sai các path đã có**.
+R3 Full + GEARLite V4 đạt **84,03% Accuracy / 83,32% Macro-F1** trên 3.069 câu Conjunction. Mốc E0 Concat top-5 là **85,08% Accuracy**. Hai bản khác cả candidate và kiến trúc, nên chênh lệch 1,05 điểm phần trăm **chưa thể quy cho riêng R3 hay V4**.
 
-## 2. Đã kiểm tra gì trên test (Bước A)
+Đã đối chiếu prediction test của checkpoint V4 seed 42 với candidate artifact R3 (`K=32`) trên toàn bộ Conjunction, rồi lấy **50 câu có chủ đích** để đọc path cụ thể:
 
-Dùng prediction test của V4 seed 42 và artifact R3 Full (`K=32`) để thống kê toàn bộ Conjunction; sau đó lấy **50 câu theo nhóm lỗi/đối chứng** để đọc claim, top-5 relation, hop và các path V4 nhìn thấy.
-
-| Nhãn thật → V4 dự đoán | Số câu | 0 path | 0 `connected` | Artifact có đúng 32 path |
+| Nhãn thật → V4 đoán | Số câu | 0 path | 0 `connected` | Đúng 32 path trong artifact |
 |---|---:|---:|---:|---:|
 | True → False | **387** | 19 | 60 | 172 |
-| True → True | 971 | 1 | 9 | 495 |
 | False → True | **103** | 0 | 7 | 26 |
-| False → False | 1.608 | — | — | — |
+| True → True | 971 | 1 | 9 | 495 |
+| False → False | 1.608 | Chưa thống kê | Chưa thống kê | Chưa thống kê |
 
-Tổng cộng V4 **sai 490/3.069 câu**; lỗi True → False chiếm 387/490. Các cột `0 path`, `0 connected`, `32 path` **có thể chồng lấn**: chẳng hạn `0 path` cũng là `0 connected`. `Connected` chỉ nghĩa là path nối hai entity của claim theo quy tắc R3, **không chứng minh đủ mọi vế**. Hơn nữa, 495 câu True → True cũng có đúng 32 path, nên chưa thể nói `K=32` là nguyên nhân chính. Artifact R3 được lưu tối đa 32 path; số “không có path sau K” trong audit **không cho biết** KG ban đầu có thêm path nào bị bỏ trước lúc lưu hay không.
+V4 sai **490/3.069 câu**, trong đó 387 lỗi là bỏ sót claim True. Các cột `0 path`, `0 connected`, `32 path` **chồng lấn**, không được cộng thành số nguyên nhân. `Connected` chỉ là path nối hai entity của claim, chưa chắc chứng minh đủ các vế. Đúng 32 path cũng xuất hiện ở 495 câu True → True, nên **chưa có bằng chứng rằng K=32 tự nó gây giảm điểm**. Artifact đã bị giới hạn khi lưu ở 32 path; không thể dùng nó để khẳng định KG không có path phía sau.
 
-### Ví dụ tiêu biểu và kết luận sơ bộ
+Các ví dụ trong `conjunction_audit_step_a/conjunction_cases.md` gợi ý **ít nhất hai dạng lỗi**:
 
-- **Thiếu đầu vào rõ ràng — test index 5168:** câu đúng về Agra Airport, India và mã `AGR` được dự đoán False; R3 tạo **0 connected + 0 walkable** dù top-5 có `faa`/`~faa`. Xác nhận được là *V4 không nhận path nào*; chưa xác định do relation, entity/literal, hướng cạnh hay dữ liệu KG.
-- **Một vế có bằng chứng nhưng cả câu sai — index 2664:** câu sai về Acura/Honda và động cơ `OHV single` được dự đoán True. Candidate chỉ có `Acura → ~division → Honda`, không thấy path cho vế động cơ. Đây là dấu hiệu V4 có thể tin một vế đúng rồi bỏ qua vế còn lại; cần kiểm tra thêm trước khi kết luận cơ chế này phổ biến.
-- **Path cho các vế đã xuất hiện nhưng vẫn đoán sai — index 5902:** câu đúng về Adare Manor, tiếng Irish và lãnh đạo Enda Kenny có ba connected path tương ứng, V4 vẫn đoán False. Trường hợp Baymax có path tới cả Duncan Rouleau và Steven T. Seagle (index 5374) cũng bị đoán False. Những câu này gợi ý phải kiểm tra attention/cách gộp bằng chứng, không chỉ retrieval.
-- **`0 connected` có thể do không khớp biểu diễn entity — index 5742:** path đi tới literal `"Adams County, Pennsylvania"`, trong khi `Entity_set` dùng `Adams_County,_Pennsylvania`; path được xếp `walkable`. Vì vậy không được đồng nhất `0 connected` với “không có bằng chứng”.
+- **Thiếu bằng chứng trước V4:** claim đúng về Agra Airport–India–mã `AGR` (index 5168) có **0 path**, V4 đoán False. Top-5 đã có `faa`/`~faa`, nên vẫn phải kiểm tra entity/literal, chiều cạnh và KG; chưa thể đổ lỗi riêng cho predictor.
+- **Chỉ một vế có path nhưng V4 đoán cả câu True:** claim sai về Acura/Honda và động cơ `OHV single` (index 2664) chỉ có path Acura–Honda. Đây là dấu hiệu cần kiểm tra khả năng V4 không yêu cầu đủ mọi vế.
+- **Path cho các vế đã xuất hiện nhưng V4 vẫn đoán False:** claim Adare Manor–Irish–Enda Kenny (index 5902) có ba path tương ứng; claim Baymax–hai người sáng tạo (index 5374) cũng có path tới cả hai người. Điều này gợi ý cần kiểm tra cách V4 gộp path, không chỉ sửa retrieval.
+- **`0 connected` không đồng nghĩa không có path liên quan:** ở index 5742, KG dùng literal `"Adams County, Pennsylvania"` còn `Entity_set` dùng `Adams_County,_Pennsylvania`, khiến path bị xếp `walkable`.
 
-Đây là **quan sát trên mẫu chọn có chủ đích**, chưa phải tỷ lệ nguyên nhân của toàn bộ 490 lỗi. Các cột gán nguyên nhân thủ công trong `conjunction_cases.csv` hiện còn trống; test không có Evidence vàng để tự động xác nhận proof cho từng vế.
+Đây là **ví dụ và tương quan**, chưa phải thống kê nguyên nhân trên cả 490 lỗi. Các cột gán nguyên nhân thủ công trong CSV vẫn chưa được điền; test không có Evidence vàng để tự xác nhận proof của từng vế.
 
-## 3. Hai cách so sánh trên dev để tìm nguyên nhân (Bước B)
+## 2. Phép so sánh A/B dự kiến trên dev và điểm bị ngưng
 
-**Dev** là tập dùng kiểm tra/chọn model, khác với các claim test ở trên. Dev có `Label` và `Evidence` vàng. Hai cách sau dùng **cùng claim dev và cùng checkpoint V4 đã train**, chỉ thay cách tạo candidate; V4 **chỉ dự đoán, không học lại**.
+Dev là tập claim khác test và có `Label`, `Evidence` vàng. Mục tiêu là giữ **cùng claim dev, cùng checkpoint V4 đã train**, chỉ đổi nguồn candidate; V4 **không học lại**:
 
-1. **Cách A — candidate dựa trên Evidence vàng:** `factkg_dev.pickle` → R3 tạo `dev_candid_paths_r3_full.bin` (đã có từ trước) → checkpoint V4 → dự đoán dev. Candidate này đã được dùng khi chọn checkpoint V4, nhưng **chưa chạy lại như nhánh A của phép so sánh có kiểm soát**.
-2. **Cách B — candidate từ retrieval dự đoán:** cùng claim dev → checkpoint relation/hop cũ dự đoán top-5 relation và `H` → R3 duyệt KG, lưu tối đa 32 path → **cùng checkpoint V4** → dự đoán dev. Nếu A đúng/B sai trên cùng câu, ưu tiên điều tra đầu vào; nếu path cho mọi vế đã có mà V4 vẫn sai, điều tra verifier. So sánh này chỉ để chẩn đoán; điểm A có thể lạc quan vì checkpoint V4 được chọn trên dev vàng.
+1. **A — candidate từ Evidence vàng:** `factkg_dev.pickle` → R3 → `dev_candid_paths_r3_full.bin` đã có → V4 dự đoán. Artifact này đã dùng khi chọn checkpoint V4, nhưng chưa chạy lại như nhánh A của phép so sánh có kiểm soát.
+2. **B — candidate từ retrieval dự đoán:** cùng claim dev → checkpoint relation/hop cũ sinh top-5 relation và `H` → R3 tìm path KG → cùng V4 dự đoán. Nếu A đúng/B sai trên cùng câu, nghiêng về thiếu bằng chứng đầu vào; nếu đủ path mà V4 vẫn sai, nghiêng về verifier. Đây là **chẩn đoán**, không phải điểm test mới; A có thể lạc quan vì V4 đã được chọn bằng dev vàng.
 
-### Trạng thái chạy đến 30/9
+**Đã hoàn thành:** tạo dev ở định dạng đầu vào test và dùng checkpoint predictor cũ để sinh hai JSON dự đoán dev: `test_relations_top5.json`, `predictions_hop.json` trong `artifacts/conjunction_step_b_20260928_164428/`. Tên JSON có chữ `test` do CLI gốc, nhưng nội dung là **dev**. Không train lại predictor.
 
-- **Đã xong:** chuẩn bị dev theo định dạng đầu vào test trong `artifacts/conjunction_step_b_20260928_164428/`; nạp **checkpoint relation/hop cũ** để sinh `test_relations_top5.json` và `predictions_hop.json` cho **claim dev**. Tên file relation có chữ `test` do CLI gốc đặt, nhưng nội dung lần này là dev. Không train lại predictor.
-- **Chưa xong:** lệnh R3 biến hai JSON dev trên thành candidate `.bin`. Tiến trình chậm bất thường gần claim thứ 5.495, sau đó chỉ tiến thêm khoảng 1%; terminal báo ETA khoảng 7 giờ (chỉ là ước lượng). Claim được quan sát là câu về sân bay tại Punjab, Pakistan; top-5 gồm `operator`, `runwayDesignation`, `~operator`, `~location`, `runwaySurface`, `H=2`. Tiến trình dùng gần 100% một CPU và khoảng 10,3 GiB RAM ổn định, nên **đang tính chứ không đứng hẳn**. Khả năng bùng nổ nhánh duyệt KG là giả thuyết, chưa đo số nhánh để xác nhận. `--store_max_paths 32` chỉ giới hạn path lưu, không tự giới hạn mọi lượt duyệt.
-- **Chưa chạy:** nạp V4 để đánh giá hai nhánh A/B trên cùng dev; vì B chưa có candidate hoàn chỉnh, hiện **chưa có kết quả so sánh A/B**. Cũng chưa train lại V4 hay thay đổi điểm test đã báo.
+**Chưa hoàn thành:** R3 dựng candidate dự đoán cho toàn dev chạy quá chậm gần claim thứ 5.495, sau đó chỉ tiến thêm khoảng 1%; terminal từng ước tính ~7 giờ. Tiến trình dùng gần 100% một CPU, RAM ổn định ~10,3 GiB: có tính toán, không phải treo hẳn. Claim được quan sát là câu về sân bay ở Punjab, Pakistan, với `H=2` và các relation `operator`, `runwayDesignation`, `~operator`, `~location`, `runwaySurface`. Nghi ngờ bùng nổ nhánh KG **chưa được đo xác nhận**. `--store_max_paths 32` giới hạn số path lưu, không chặn toàn bộ lượt duyệt. Do B chưa có artifact hoàn chỉnh, **chưa chạy A/B qua V4 và chưa có kết quả so sánh**.
 
-## 4. Việc tiếp theo
+## 3. Kiểm tra nhẹ đã làm hôm nay, không cần chạy R3
 
-1. Kiểm tra R3 còn chạy và file `artifacts/conjunction_step_b_20260928_164428/candidates/test_candid_paths_top5_dev_predicted_r3.bin` đã xuất hiện chưa. Nếu chưa, **giữ nguyên hai JSON dev đã tạo**, không chạy lại predictor.
-2. Để hoàn tất B: đo nhánh gây chậm rồi tối ưu duyệt R3 **mà không đổi thứ tự/top-32 path**, hoặc trước mắt chạy trên một mẫu Conjunction dev có kiểm soát. Không dùng điểm mẫu làm điểm dev/test chính thức, và không âm thầm bỏ claim khó khi báo kết quả toàn tập.
-3. Khi có candidate dự đoán: dùng **cùng checkpoint V4** dự đoán A và B, so Accuracy theo nhãn True/False, các câu đổi từ đúng sang sai, và độ phủ Evidence của từng vế.
-4. Có thể làm kiểm tra nhỏ song song trên test đã có: nạp V4 + artifact R3 cũ, xuất attention/logit cho vài câu **đủ path nhưng sai** (như index 5902, 5374). Việc này không cần chạy lại retrieval hay train; code hiện chưa có CLI xuất attention nên cần script audit riêng.
+Dùng hai JSON dự đoán dev vừa có đối chiếu với Evidence vàng của **1.970 câu Conjunction True**. Kết quả:
 
-## 5. File cần giữ để tiếp tục
+| Điều kiện đo | Số câu |
+|---|---:|
+| Tất cả relation được annotate đều nằm trong top-5 | 129/1.970 (6,5%) |
+| Có hơn 5 relation vàng phân biệt | 818/1.970 (41,5%) |
+| Ít nhất **một** chain vàng nằm trong top-5 và không vượt `H` | 1.831/1.970 (92,9%) |
+| Mỗi khóa `Evidence` có ít nhất một chain như vậy | 240/1.970 (12,2%) |
+| Mọi chain được annotate dài **một cạnh** | 1.970/1.970 |
+| Claim thiếu JSON dự đoán | 0 |
 
-- Trong repo: `conjunction_audit_step_a/conjunction_cases.md`, `conjunction_cases.csv`, `conjunction_summary.json`, `with_evidence/classifier/audit_conjunction_step_a.py` và báo cáo này.
-- Trên máy chạy: thư mục `artifacts/conjunction_step_b_20260928_164428/` chứa JSON dự đoán dev và dữ liệu chẩn đoán; checkpoint V4 tại `artifacts/faico_lite_top5/r3_full/predictions_hybrid_rerun/`.
-- `.gitignore` đang bỏ qua `*.json`, `*.bin`, `*.pkl`, `*.pth`; **commit Markdown/CSV/code không tự mang theo** JSON chẩn đoán, candidate hay checkpoint trên máy chạy. Cần giữ riêng các artifact đó nếu ngày mai tiếp tục trên máy khác.
+**Diễn giải đúng:** `129/1.970` là phép đo quá chặt nếu một claim có nhiều proof/quan hệ thay thế; riêng 818 câu có hơn 5 relation vàng thì top-5 không thể chứa hết. Predictor thường lấy được **ít nhất một chain**, nhưng chưa rõ có phủ đủ *các vế bắt buộc* của Conjunction không. `240/1.970` chỉ là **proxy theo khóa Evidence**, không được gọi là proof recall: một khóa có thể là cách annotate/đường thay thế, chưa xác nhận tương ứng đúng một vế. Vì mọi chain được ghi chú đều dài một cạnh, kết quả `H` đủ cho chúng không chứng minh hop predictor tốt với multi-hop; Conjunction ở đây chủ yếu đòi **kết hợp nhiều sự kiện một cạnh**.
+
+## 4. Các nghi ngờ và cách kiểm chứng tiếp
+
+1. **Độ phủ relation giữa các vế có thể thiếu.** Nếu relation bắt buộc không ở top-5, R3 không thể dựng path của vế ấy. Cần đọc khoảng 20 câu dev kiểu “có một chain khớp nhưng không khớp mọi khóa Evidence”, xác định khóa nào là vế bắt buộc và khóa nào chỉ là proof thay thế. Sau đó mới cân nhắc chọn relation theo từng vế, tăng/đa dạng hóa top-5 hoặc thay đổi predictor. Code hiện train predictor với `Claim + một entity` từ Evidence, còn lúc suy luận test-like dùng `Claim + Entity_set`; đây cũng là **khả năng lệch đầu vào cần kiểm tra**, chưa phải nguyên nhân đã chứng minh.
+2. **R3/path construction vẫn có thể lỗi độc lập:** relation đúng có thể không ra path do alias/literal, hướng cạnh, thiếu edge KG hoặc thứ tự cắt top-32. Trước mắt đo nhánh gây chậm; nếu tối ưu R3, phải giữ nguyên candidate và thứ tự top-32 trên mẫu đối chứng. Có thể chạy một mẫu dev nhỏ để chẩn đoán, nhưng không báo điểm mẫu như điểm toàn tập.
+3. **V4 có thể gộp sai dù path đã đủ:** trên các câu test như index 5902/5374, nạp checkpoint và artifact cũ, xuất attention/logit và thử che từng path. Attention cao một mình không chứng minh suy luận nhân quả; cần quan sát dự đoán đổi ra sao khi bỏ path của một vế. Bước này không cần chạy lại R3 hay train V4, nhưng cần script audit vì CLI hiện chưa xuất attention.
+
+**Kết luận hiện tại:** có cơ sở nghi ngờ đồng thời **thiếu độ phủ relation/path** và **cách V4 gộp nhiều vế**; chưa đủ bằng chứng khẳng định nguyên nhân chính là train predictor, R3 hay V4. Chưa nên chuyển sang ERNet hoặc train lại model trước khi tách ba tầng lỗi trên.
+
+## 5. Giữ lại để tiếp tục và commit
+
+- Trong repo: báo cáo này, `conjunction_audit_step_a/conjunction_cases.md`, `.csv`, `conjunction_summary.json` và `with_evidence/classifier/audit_conjunction_step_a.py`.
+- Trên máy GPU: hai JSON dev tại `artifacts/conjunction_step_b_20260928_164428/`, artifact R3 Full cũ và checkpoint V4 trong `artifacts/faico_lite_top5/r3_full/`.
+- `.gitignore` bỏ qua `*.json`, `*.bin`, `*.pkl`, `*.pth`: commit Markdown/CSV/code **không tự mang theo** JSON, candidate hay checkpoint. Giữ riêng các artifact nếu chuyển máy; không cần chạy lại predictor chỉ vì lệnh R3 chưa hoàn tất.

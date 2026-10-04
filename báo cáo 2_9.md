@@ -233,3 +233,4 @@ attention tạo score cho path.
 5. **Sau khi xác nhận seed, mới kiểm tra candidate path hoặc R2 (`k=1`) nếu
    cần tách ảnh hưởng của relation lặp.** ERNet chỉ là bước sau cùng, khi
    candidate đã đủ proof nhưng các claim cần kết hợp path vẫn sai.
+.

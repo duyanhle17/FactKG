@@ -1,131 +1,80 @@
-# Báo cáo 7/10 — kiểm tra top-10 relation cho R3 + GEARLite V4
+# Báo cáo 7/10 — kiểm tra Conjunction và thử relation top-10 (tính đến 6/10)
 
-## Đúc kết từ các kiểm tra vừa qua
+## Kết luận ngắn
 
-- V4 + R3 top-5, `K=32` đạt **84,03% Conjunction Accuracy** trên test; mốc E0 top-5 là **85,08%**. Hai hệ thống khác cả cách lấy path lẫn classifier, nên chưa thể quy chênh lệch 1,05 điểm phần trăm cho riêng bước nào.
-- Trên **1.970 claim dev nhãn True có tag `multi claim` và Evidence**, tăng relation từ top-5 lên top-10 làm số claim có *ít nhất một chain vàng* nằm trong relation dự đoán tăng **1.831 → 1.860** (+29). Số claim có *ít nhất một chain cho mỗi khóa Evidence* tăng **240 → 502** (+262). Đây chỉ là **độ phủ relation theo annotation**, chưa phải proof/path recall: một khóa Evidence không nhất thiết là một vế bắt buộc của claim. Nhóm 1.970 claim theo tag cũng không hoàn toàn trùng nhóm Conjunction độc quyền dùng để tính Accuracy.
-- Trên **5 claim True được chọn có chủ đích**, dùng cùng checkpoint V4 và `K=32`, top-10 sửa **2 câu False → True**, 3 câu còn lại giữ True. R3 đã thêm một số path `connected` liên quan đến relation mới. Trên **10 claim False đối chứng được chọn**, cả top-5 lẫn top-10 đều dự đoán False; không có câu nào bị lật sai sang True. Một số đối chứng chỉ trùng entity/giá trị hoặc họ relation, không phải cặp claim chỉ khác đúng một vế.
-- Nhiều artifact đều chạm **32 path**. `32 → 32` chỉ là số lượng: top-10 có thể thay path cũ bằng path mới, không có nghĩa hai tập path giống nhau.
+**Top-10 cải thiện độ phủ relation trên dev và có tín hiệu tốt ở một mẫu True nhỏ, nhưng chưa có điểm V4 toàn test cho top-10.** Lượt R3 top-10 full đã dựng xong candidate train/dev, song phần test chậm ở khoảng 3.528/9.041 claim và đã được dừng. Không được báo rằng top-10 đã tăng Accuracy, V4 mới đã train xong, hoặc R3 test top-10 đã hoàn tất.
 
-**Nhận định:** top-10 **có tín hiệu tốt hơn ở độ phủ relation và trên mẫu True nhỏ**, chưa đủ chứng minh Accuracy toàn test tăng hoặc giải thích hoàn toàn lỗi Conjunction. Cần chạy **toàn test với cùng checkpoint V4, cùng `K=32`** để chỉ cô lập tác động của top-10. Sau đó mới thử `K=64` riêng; đổi cả top-k relation và K cùng lúc sẽ khó biết nguyên nhân thay đổi điểm.
+## 1. Flow đúng và phạm vi các phép kiểm tra
 
-## Flow chuẩn và điều cần chạy lần này
+Flow của lần thử là: **preprocess dữ liệu → train/eval relation predictor → train/eval hoặc dùng lại hop predictor → R3 dựng path candidate trên KG → V4 học hoặc dự đoán từ các path đó**. R3/Faico-Lite là phần mở rộng trong repo này, **không phải một model được train hay tên bước trong paper FactKG gốc**. [Paper FactKG](https://aclanthology.org/2023.acl-long.895.pdf) và [mã baseline gốc](https://github.com/jiho283/FactKG/blob/main/with_evidence/classifier/preprocess.py) mô tả việc dùng relation/hop để truy xuất đồ thị.
 
-Flow đầy đủ khi bắt đầu từ đầu là: **data preprocess → train/eval relation predictor → train/eval hop predictor → R3 dựng candidate → train/test V4**. R3 **không phải model được train**. Trong code hiện tại, R3 dùng chuỗi relation trong `Evidence` vàng cho candidate **train/dev**, nhưng dùng relation/hop **dự đoán** cho candidate **test**. `top_k=10` chỉ đổi số relation được xuất ở bước `eval`; không làm V4 học thêm path trong lần train cũ.
+Trong code hiện tại, **train/dev** dùng `Evidence` vàng gồm *các chuỗi relation theo entity* để R3 tìm path cụ thể trong KG; `Evidence` không phải file path cụ thể đã dựng sẵn. **Test** không có các chuỗi vàng nên R3 dùng relation và `H` **dự đoán**. Đổi top-5 thành top-10 vì vậy tác động trực tiếp đến **candidate test**, không tự động làm candidate train/dev hoặc V4 đã train trước đó học thêm path. Cấu hình `top_k` của relation predictor chọn số relation tại bước `eval`, không thay mục tiêu học của model.
 
-Lần thử này **tái sử dụng checkpoint relation, hop và V4 đã có**: chỉ cần xuất JSON top-10/hop đúng *tập test*, dựng candidate R3 top-10 cho test, rồi dùng `--test_only`. Không lấy các JSON **dev** trong `artifacts/conjunction_step_b_...` làm đầu vào test gốc.
+Phân biệt ba loại số liệu trong báo cáo: **độ phủ relation theo annotation** ≠ **path thật R3 tìm được** ≠ **độ chính xác nhãn của V4**. Các mẫu dev dùng nhãn/Evidence để chọn ca chẩn đoán; dữ liệu test-style đưa vào R3/V4 đã bỏ `Evidence`.
 
-## Lệnh chuẩn bị và chạy top-10 trên toàn test (`K=32`)
+## 2. Mốc top-5 và lỗi Conjunction ban đầu (đến 30/9)
 
-Chạy trên máy GPU Linux, từ repo đã cập nhật code. Khi dán lệnh, dấu `\` phải đứng cuối dòng, không có khoảng trắng phía sau.
+- R3 Full top-5 + GEARLite V4, `K=32`, đạt **84,03% Accuracy / 83,32% Macro-F1** trên **3.069 claim Conjunction test**. Mốc E0 Concat top-5 đạt **85,08% Accuracy**. Hai hệ thống khác cả retriever và classifier, nên chênh lệch 1,05 điểm phần trăm **không chứng minh riêng R3 hay V4 kém hơn**.
+- V4 sai **490/3.069** câu: **387 True → False** và **103 False → True**. Trong 387 lỗi bỏ sót True có 19 câu không có path, 60 câu không có `connected`, 172 câu chạm 32 path; các nhóm này chồng lấn. Nhiều câu đúng cũng chạm 32 path, nên chưa thể quy K=32 là nguyên nhân.
+- Đọc các ca cụ thể cho thấy cả ba khả năng: thiếu path đầu vào (Agra Airport); có path cho một vế nhưng cả câu False bị đoán True (Acura/Honda); hoặc đã có path liên quan nhiều vế mà V4 vẫn đoán False (Adare Manor, Baymax). Đây là dấu hiệu để điều tra, **chưa phải thống kê nguyên nhân trên cả 490 lỗi**. Xem [báo cáo 30/9](báo%20cáo%2030_9.md).
 
-### 1. Gán đường dẫn, kiểm tra dữ liệu preprocess và checkpoint
+## 3. Audit relation top-5 so với top-10 trên dev (3–5/10)
+
+Đây là audit trên **prediction dev của lượt trước**, chưa phải đánh giá predictor mới train ngày 5/10. Trong **1.970 claim dev nhãn True có tag `multi claim` và Evidence**, có **1.916 claim** thuộc bucket Conjunction độc quyền của `baseline.py`; không được lấy mẫu số 1.970 làm Accuracy Conjunction. Hai JSON dự đoán có cùng 13.266 claim: top-5 là đúng prefix top-10 ở **13.227/13.266**, và tập relation top-5 nằm trong top-10 ở **13.266/13.266**.
+
+| Chỉ số độ phủ annotation | Top-5 | Top-10 | Tăng |
+|---|---:|---:|---:|
+| Chứa tất cả relation vàng được ghi chú | 129 | 394 | +265 |
+| Chứa ít nhất một chain vàng, không vượt `H` | 1.831 | 1.860 | +29 |
+| Mỗi khóa `Evidence` có ít nhất một chain như vậy | 240 | 502 | +262 |
+
+Có **818/1.970** câu có hơn 5 relation vàng phân biệt, nên top-5 không thể chứa hết mọi relation được ghi chú. Tuy nhiên, một khóa `Evidence` không nhất thiết tương ứng đúng một vế bắt buộc; các số trên là **proxy độ phủ relation**, không phải clause recall, KG proof recall hay Accuracy.
+
+Trên **5 claim True H=1 được chọn có chủ đích**, R3 tạo candidate top-5/top-10 rồi nạp **cùng checkpoint V4, cùng K=32**: top-10 sửa **2 câu False → True**, 3 câu giữ True. Trên **10 claim False đối chứng** được chọn từ 57 ca đủ điều kiện cùng entity/họ relation với nhóm True, cả top-5 và top-10 đều đoán False. Đối chứng này không phải các cặp chỉ khác đúng một vế; 5 và 10 claim đều quá nhỏ, có thiên lệch chọn mẫu. Việc cùng ghi 32 path không có nghĩa hai tập path giống nhau. Xem [so sánh 5 ca True](v4_comparison_20261005_083018.md) và báo cáo false-controls trên máy GPU.
+
+## 4. Lượt chạy mới top-10 và nút thắt R3 (5–6/10)
+
+- **Relation predictor:** đã train lại trong `artifacts/r3_top10_v4_fresh_0710/retriever_model/relation_predict/`; checkpoint `lightning_logs/version_0/checkpoints/epoch=9-step=17350.ckpt` khoảng **1,3 GB**. Lệnh `--mode eval` với `relation_predict_top10.yaml` chạy xong **37/37 batch**; R3 đã đọc `test_relations_top10.json` khi dựng test. Tuy nhiên chưa có log đối chiếu số claim/nội dung JSON với `factkg_test.pickle` được gửi lại, nên cần xác nhận trước khi công bố đầu vào đã kiểm định đầy đủ.
+- **Hop predictor:** thử train mới nhưng **CUDA OOM** ở đầu epoch với batch 64. Lúc lỗi, tiến trình hop dùng khoảng **11,57 GiB VRAM**, GPU chỉ còn **48,81 MiB**; các job vLLM/TTS khác đang chiếm phần lớn GPU. **Không có checkpoint hop mới hoàn chỉnh**. Lượt R3 sau đó được cấu hình dùng `with_evidence/retrieve/model/hop_predict/predictions_hop.json` cũ; không cần train hop lại chỉ vì đổi relation top-k, nhưng vẫn nên xác nhận JSON hop khớp đúng tập test.
+- **R3 full top-10:** tiến trình thực tế **không có** `--test_only_candidates`; nó dựng train → dev → test với `--include_shorter_paths --relation_budget 2 --store_max_paths 32`. Train/dev đã qua và được ghi vào `artifacts/r3_top10_v4_fresh_0710/candidates_full/`. Test đến khoảng **3.528/9.041 claim** rồi đứng rất lâu; `ps` cho thấy PID dùng **99,9% một CPU**, RSS khoảng **11 GB**, tức vẫn tính toán chứ chưa thấy OOM. Lượt này đã được dừng. Theo code, file candidate test chỉ ghi khi xử lý xong toàn tập, nên **chưa có artifact test top-10 hoàn chỉnh** để V4 dự đoán.
+- **V4:** chưa train mới và chưa test toàn bộ top-10. Checkpoint V4 top-5 cũ vẫn còn; nó có thể dùng để kiểm tra top-10 *sau khi* R3 tạo xong candidate test top-10. JSON relation/hop không phải đầu vào trực tiếp của V4.
+
+Vì sao R3 top-5 trước từng nhanh nhưng các lượt sau chậm? Lượt top-5 chuẩn trên **test gốc 9.041 claim** đã hoàn thành. Lượt chẩn đoán khác dùng **dev 13.266 claim được đóng gói như test**, dự đoán top-5/H thay vì dùng Evidence vàng, từng chậm gần claim **5.495** (`H=2`, claim sân bay ở Punjab, CPU gần 100%, RAM khoảng 10,3 GB). Lượt hiện tại là **test gốc top-10** và chậm ở claim khác. Như vậy **top-5 cũng có ca nặng**; top-10 có thể tăng số chuỗi/nhánh phải duyệt nhưng chưa xác định chính xác nguyên nhân claim 3.528. `--store_max_paths 32` giới hạn path lưu, **không đảm bảo giới hạn mọi trạng thái KG phải duyệt**. Lệnh R3 top-5 cũ trong hướng dẫn dùng `--report_max_paths 32` (thống kê), khác cờ giới hạn lưu của lượt mới; cần xem manifest cũ trước khi nói hai lần chạy hoàn toàn giống cấu hình.
+
+## 5. Nhận định và việc cần làm tiếp
+
+1. **Kết luận được:** top-10 tăng độ phủ relation theo annotation dev và giúp 2/5 claim True được chọn, không làm 10 False đối chứng đổi nhãn. **Chưa kết luận được:** top-10 tăng Accuracy/Macro-F1 trên toàn test hay giải quyết chính lỗi Conjunction.
+2. **Chốt đầu vào:** kiểm tra `test_relations_top10.json` của checkpoint mới và `predictions_hop.json` cũ cùng khớp 9.041 claim test, relation đủ 10 phần tử/claim; giữ manifest/log. Xác định claim test index 3.528, `H`, relation, entity và số trạng thái mở rộng trước khi thay đổi R3.
+3. **Xử lý nút thắt R3:** ưu tiên đo/profile claim nặng và thêm lưu tiến độ/khả năng tiếp tục mà không đổi tập candidate. Nếu phải đặt giới hạn duyệt hoặc bỏ claim, ghi rõ đó là thí nghiệm có cắt và áp dụng cùng chính sách cho top-5/top-10; **không báo điểm đó như kết quả full-test nguyên bản**. Không khởi động lại y nguyên lệnh full khi chưa xử lý nút thắt.
+4. **So sánh công bằng:** sau khi có candidate test hoàn chỉnh, nạp **cùng checkpoint V4, cùng K=32** cho hai nhánh. Vì relation top-10 full-test mới đến từ **checkpoint relation vừa train**, còn mốc top-5 cũ từ checkpoint trước, so trực tiếp chúng sẽ lẫn *đổi checkpoint* với *đổi top-k*. Muốn cô lập top-k, xuất cả top-5 và top-10 từ **cùng checkpoint relation mới**, dùng cùng hop, KG, R3 và V4. Sau đó mới cân nhắc train V4 mới hoặc tăng `K=64` như thí nghiệm riêng.
+
+## 6. Artifact cần giữ và kiểm tra nhanh trên máy GPU
+
+Các lệnh dưới đây **chỉ kiểm tra**, không chạy lại R3. Nếu file test top-10 chưa có, không chạy `baseline.py --test_only` với tên file đó.
 
 ```bash
 export REPO=/home/namnx/duyanh/FactKG
 export PYTHON=/home/namnx/duyanh/.conda/factkg/bin/python
 export DATA_DIR=/home/namnx/duyanh/Data
-export MODEL_DIR="$REPO/with_evidence/retrieve/model"
-export R3_DIR="$REPO/artifacts/faico_lite_top5/r3_full"
-export RUN="$REPO/artifacts/r3_top10_fulltest_k32_0710"
-export REL_CKPT="$MODEL_DIR/relation_predict/lightning_logs/version_1/checkpoints/epoch=9-step=17350.ckpt"
-export REL10="$MODEL_DIR/relation_predict/test_relations_top10.json"
-export HOP_CKPT="$MODEL_DIR/hop_predict/model.pth"
-export HOP_JSON="$MODEL_DIR/hop_predict/predictions_hop.json"
-export KG_PATH="$DATA_DIR/dbpedia_2015_undirected_light.pickle"
-export V4_CKPT="$R3_DIR/predictions_hybrid_rerun/best_model_gearlite_v4_r3_full_v4_hybrid_rerun_seed42.pth"
-export CUDA_VISIBLE_DEVICES=0
-export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export OLD="$REPO/artifacts/faico_lite_top5/r3_full"
+export RUN="$REPO/artifacts/r3_top10_v4_fresh_0710"
+export REL10="$RUN/retriever_model/relation_predict/test_relations_top10.json"
+export HOP_JSON="$REPO/with_evidence/retrieve/model/hop_predict/predictions_hop.json"
 
-ls -lh "$DATA_DIR/factkg_test.pickle" "$KG_PATH" "$REL_CKPT" "$HOP_CKPT" "$V4_CKPT"
-ls -lh "$MODEL_DIR/total_data.pkl" "$MODEL_DIR/train.json" "$MODEL_DIR/dev.json" "$MODEL_DIR/test.json" "$MODEL_DIR/relation_predict/relations_for_final.pickle"
+ls -lh "$OLD/train_candid_paths_r3_full.bin" \
+  "$OLD/dev_candid_paths_r3_full.bin" \
+  "$OLD/test_candid_paths_top5_r3_full.bin" \
+  "$RUN/candidates_full/train_candid_paths_r3_top10_full_k32.bin" \
+  "$RUN/candidates_full/dev_candid_paths_r3_top10_full_k32.bin"
+
+ls -lh "$RUN/candidates_full/test_candid_paths_top10_r3_top10_full_k32.bin"
 ```
 
-Nếu **thiếu** `total_data.pkl`/JSON preprocess, mới chạy lệnh sau; nếu đã có từ cùng bộ dữ liệu thì **bỏ qua**:
+Dòng `ls` cuối báo thiếu là **đúng với tình trạng lượt R3 đã dừng giữa test**. Kiểm tra cấu hình và thời gian lượt top-5 cũ bằng manifest/report, nếu hai file đó có sẵn:
 
 ```bash
-cd "$REPO/with_evidence/retrieve/data"
-"$PYTHON" data_preprocess.py \
-  --data_directory_path "$DATA_DIR" \
-  --output_directory_path "$MODEL_DIR"
+"$PYTHON" -c 'import json,sys; m=json.load(open(sys.argv[1])); r=json.load(open(sys.argv[2])); print("Cấu hình:",m.get("config")); print("Đầu vào:",m.get("inputs")); print("Thời gian từng tập (giây):",{k:v.get("elapsed_seconds") for k,v in r.get("splits",{}).items()})' \
+  "$OLD/manifest_r3_full.json" "$OLD/retrieval_report_r3_full.json"
 ```
 
-### 2. Xuất top-10 relation và hop từ checkpoint cũ
-
-Nếu `test_relations_top10.json` chưa có, chạy **eval**, không chạy `train`:
-
-```bash
-if [ ! -f "$REL10" ]; then
-  cd "$MODEL_DIR/relation_predict"
-  "$PYTHON" main.py \
-    --mode eval \
-    --config ../config/relation_predict_top10.yaml \
-    --model_path "$REL_CKPT"
-fi
-```
-
-Nếu `predictions_hop.json` test chưa có:
-
-```bash
-if [ ! -f "$HOP_JSON" ]; then
-  cd "$MODEL_DIR/hop_predict"
-  "$PYTHON" main.py \
-    --mode eval \
-    --config ../config/hop_predict.yaml \
-    --model_path "$HOP_CKPT"
-fi
-```
-
-**Bắt buộc kiểm tra** JSON là của test gốc, không phải bản dev chẩn đoán. Lệnh phải in `Khớp test: True` và `Đủ 10 relation: True`:
-
-```bash
-"$PYTHON" -c 'import json,pickle,sys; d=pickle.load(open(sys.argv[1],"rb")); r=json.load(open(sys.argv[2])); h=json.load(open(sys.argv[3])); ok=set(d)==set(r["claims"].values())==set(h["claims"].values()); ten=all(len(v)==10 for v in r["output"].values()); print("Số claim:",len(d),len(r["claims"]),len(h["claims"])); print("Khớp test:",ok,"Đủ 10 relation:",ten); assert ok and ten, "Dừng: JSON không đúng tập test"' "$DATA_DIR/factkg_test.pickle" "$REL10" "$HOP_JSON"
-```
-
-Nếu kiểm tra sai, **dừng và kiểm tra nguồn JSON**; không dựng R3 bằng JSON dev. Không ghi đè file dự đoán đang có nếu chưa xác định nó thuộc tập nào.
-
-### 3. R3 dựng candidate top-10 cho test
-
-```bash
-cd "$REPO/with_evidence/classifier"
-"$PYTHON" build_faico_lite_candidates.py \
-  --data_path "$DATA_DIR" \
-  --kg_path "$KG_PATH" \
-  --n_candid 10 \
-  --output_dir "$RUN/candidates" \
-  --run_name r3_top10_k32 \
-  --include_shorter_paths \
-  --relation_budget 2 \
-  --store_max_paths 32 \
-  --test_only_candidates \
-  --relation_prediction_path "$REL10" \
-  --hop_prediction_path "$HOP_JSON"
-
-ls -lh "$RUN/candidates/test_candid_paths_top10_r3_top10_k32.bin"
-```
-
-`--store_max_paths 32` chỉ giới hạn path **được lưu**, không chặn mọi nhánh KG phải duyệt. R3 top-5 trên full dev từng rất chậm ở claim `H=2`; top-10 toàn test có thể gặp lại hoặc nặng hơn. Nếu tiến độ đứng ở cùng claim khoảng 10–15 phút, dừng bằng `Ctrl+C`, ghi lại vị trí/log; **không chạy V4 khi chưa có artifact hoàn chỉnh**. Không dùng `--overwrite` lên artifact cũ.
-
-### 4. Test cùng checkpoint V4, không train lại
-
-```bash
-"$PYTHON" baseline.py \
-  --data_path "$DATA_DIR" \
-  --model_cls gearlite_v4 \
-  --n_candid 10 \
-  --skip_prepare_input \
-  --train_candid_path "$R3_DIR/train_candid_paths_r3_full.bin" \
-  --dev_candid_path "$R3_DIR/dev_candid_paths_r3_full.bin" \
-  --test_candid_path "$RUN/candidates/test_candid_paths_top10_r3_top10_k32.bin" \
-  --max_paths 32 \
-  --pair_batch_size 2 \
-  --pair_max_length 128 \
-  --seed 42 \
-  --amp \
-  --test_only \
-  --checkpoint_path "$V4_CKPT" \
-  --run_name r3_top10_k32_v4_testonly \
-  --output_dir "$RUN/predictions"
-```
-
-Ghi lại **Accuracy và Macro-F1 của cả năm reasoning type và toàn test**; so với kết quả top-5 của **cùng checkpoint V4**. Nếu sau đó muốn thử `K=64`, phải tạo artifact mới với `--store_max_paths 64` rồi suy luận với `--max_paths 64`; chỉ đổi `--max_paths` trên artifact đã lưu 32 path sẽ không có tác dụng. K=64 với checkpoint học ở K=32 chỉ là phép thử chẩn đoán; đánh giá huấn luyện K=64 là thí nghiệm khác.
+`*.bin`, `*.json`, `*.ckpt`, `*.pth` có thể bị `.gitignore` bỏ qua; giữ riêng artifact máy GPU và không coi commit Markdown là đã sao lưu model/kết quả.

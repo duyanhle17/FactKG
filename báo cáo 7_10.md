@@ -1,18 +1,12 @@
 # Báo cáo 7/10 — từ phân tích lỗi Conjunction đến thử relation top-10
 
-Mốc thời gian: **phần 1 đến hết 1/10; phần 2 từ 2/10 đến 6/10**. Chưa có kết quả chạy mới trong ngày 7/10. Các lệnh dưới đây ghi **script và tham số chính đã dùng**, không giả làm bản sao nguyên văn của toàn bộ terminal; đường dẫn artifact đầy đủ được giữ trên máy GPU.
+Mốc thời gian: **phần 1 đến hết 1/10; phần 2 từ 2/10 đến 6/10**. Chưa có kết quả chạy mới trong ngày 7/10. Trọng tâm là **việc đã hoàn thành và điều học được**, không phải danh sách lệnh để chạy lại.
 
 ## 1. Đến hết 1/10: mốc top-5 và xác định lỗi cần nghiên cứu
 
-### Đã chạy và kiểm tra
+### Việc đã có trước đó
 
-| Lệnh/nhóm lệnh | Việc đã làm và trạng thái |
-|---|---|
-| `relation_predict/main.py --mode train/eval`, `hop_predict/main.py --mode train/eval` | Tạo dự đoán relation **top-5** và hop `H` cho pipeline cũ; checkpoint và JSON cũ vẫn được dùng về sau. Không có log nguyên văn đầy đủ của lần train đầu trong báo cáo này. |
-| `build_faico_lite_candidates.py --n_candid 5 --include_shorter_paths --relation_budget 2 --report_max_paths 32` | Dựng R3 top-5 trên KG; lượt test gốc **9.041 claim** đã hoàn thành. R3 ở đây là thuật toán dựng candidate, **không phải model được train**. |
-| `baseline.py --model_cls gearlite --max_paths 32 ...` | Train/test GEARLite V4 trên candidate R3 top-5; đã có checkpoint và prediction để audit. |
-| `audit_conjunction_step_a.py --test_data ... --candidate_path ... --prediction_path ... --relation_json ... --hop_json ...` | Đối chiếu nhãn V4, số path và các ca Conjunction; đọc mẫu lỗi cụ thể. |
-| `relation_predict/main.py --mode eval` và `hop_predict/main.py --mode eval` trên dev; `build_faico_lite_candidates.py --test_only_candidates --n_candid 5 ...` | Đóng gói dev như test để thử candidate từ relation/H **dự đoán**. R3 chậm gần claim **5.495/13.266** (`H=2`, sân bay ở Punjab); nhánh này **chưa tạo xong artifact**, nên phép so sánh V4 dev vàng–dự đoán chưa hoàn tất. |
+Pipeline top-5 đã tạo relation/H dự đoán, dựng candidate R3 cho **test gốc 9.041 claim**, và train/test GEARLite V4. Sau đó đã đối chiếu prediction V4 với candidate để đọc lỗi Conjunction. Một phép chẩn đoán khác đóng gói **dev 13.266 claim như test** nhằm so path từ Evidence vàng với path từ relation/H dự đoán; lượt dựng dự đoán chậm gần claim **5.495** (`H=2`, sân bay ở Punjab), nên phép so sánh dev này **chưa hoàn tất**.
 
 Đầu vào cần hiểu đúng: ở **train/dev**, R3 lấy các *chuỗi relation* trong `Evidence` vàng để tìm path thực trong KG; ở **test**, R3 lấy relation và `H` do hai predictor dự đoán. `Evidence` không phải path cụ thể đã dựng sẵn. V4 học/đoán từ candidate path cùng nhãn claim, không đọc JSON relation trực tiếp. Faico-Lite/R3 là phần mở rộng trong repo này, không phải tên một model của [paper FactKG gốc](https://aclanthology.org/2023.acl-long.895.pdf).
 
@@ -27,19 +21,17 @@ Mốc thời gian: **phần 1 đến hết 1/10; phần 2 từ 2/10 đến 6/10*
 
 ## 2. Từ 2/10 đến 6/10: kiểm tra top-10 và thử pipeline mới
 
-### Các lệnh đã chạy, theo thứ tự mục đích
+### Các task đã hoàn thành
 
-| Lệnh/nhóm lệnh | Đầu ra hoặc trạng thái |
-|---|---|
-| `audit_relation_topk_conjunction.py --dev_data ... --top5_json ... --top10_json ... --hop_json ... --output_dir ...` | So relation dự đoán với Evidence dev, xuất `topk_summary.json`, `recovered_cases.md` và subset True H=1. Đây là **audit retrieval**, không train hoặc chạy V4 toàn tập. |
-| `build_faico_lite_candidates.py` cho subset True, lần lượt `--n_candid 5` và `--n_candid 10`; `baseline.py --test_only --checkpoint_path <cùng V4>`; `compare_relation_topk_subset.py ...` | Dựng hai tập candidate và so dự đoán V4 trên **cùng 5 claim True**, cùng checkpoint/K=32. Xem [bảng so sánh](v4_comparison_20261005_083018.md). |
-| `prepare_conjunction_false_controls.py --dev_data ... --positive_subset ... --top5_json ... --top10_json ... --hop_json ...` | Bản chọn đầu quá lỏng: **446** False đủ điều kiện. Đã sửa để entity **và** họ relation mới phải khớp **cùng một** claim True: còn **57** ca đủ điều kiện, chọn 10; không khẳng định đây là cặp chỉ khác một vế. |
-| `build_faico_lite_candidates.py` cho 10 False, top-5/top-10; `baseline.py --test_only --checkpoint_path <cùng V4>`; `compare_relation_topk_subset.py ...` | Dựng candidate, kiểm tra file `.bin` và so nhãn V4 trên 10 đối chứng False. |
-| `relation_predict/main.py --mode train` rồi `--mode eval --config ../config/relation_predict_top10.yaml --model_path <checkpoint mới>` | Train lại relation predictor; checkpoint `version_0/checkpoints/epoch=9-step=17350.ckpt` khoảng **1,3 GB**. Eval top-10 hoàn tất **37/37 batch**; R3 đã đọc `test_relations_top10.json`. Chưa đối chiếu độc lập toàn bộ JSON với 9.041 claim test. |
-| `hop_predict/main.py --mode train --config ../config/hop_predict.yaml`; `nvidia-smi` | Train hop mới bị **CUDA OOM** đầu epoch; khi lỗi GPU còn khoảng **48,81 MiB**, các job vLLM/TTS đang chiếm nhiều VRAM. **Không có checkpoint hop mới**; lượt R3 tiếp theo dùng JSON hop cũ. |
-| `build_faico_lite_candidates.py --n_candid 10 --run_name r3_top10_full_k32 --include_shorter_paths --relation_budget 2 --store_max_paths 32 --relation_prediction_path <top10 mới> --hop_prediction_path <hop cũ>`; `pgrep -af`, `ps -o pid,etime,pcpu,pmem,rss,stat,cmd -p 3372723` | Lượt **full**, không có `--test_only_candidates`: train/dev đã qua, test chậm ở khoảng **3.528/9.041**. PID dùng **99,9% một CPU**, RSS khoảng **11 GB**; lượt chạy đã dừng, **chưa có candidate test top-10 hoàn chỉnh**. |
+1. **Audit relation top-5/top-10 trên dev:** đối chiếu prediction với Evidence, kiểm tra hai JSON có cùng claim và mức độ top-5 nằm trong top-10; tạo báo cáo số liệu, ví dụ và nhóm 5 claim True H=1 để xem kỹ. Đây chỉ là audit **độ phủ relation**, không phải điểm V4.
+2. **Thử end-to-end trên mẫu nhỏ:** đã dựng candidate R3 **thành công cho 5 True H=1** ở cả top-5/top-10, nạp **cùng checkpoint V4/K=32**, rồi so nhãn. Việc này khác với lượt R3 **toàn test** bị dừng ở dưới. Xem [bảng so sánh](v4_comparison_20261005_083018.md).
+3. **Tạo và kiểm tra đối chứng False:** bản chọn đầu quá lỏng có **446** ca đủ điều kiện; đã sửa để entity **và** họ relation mới phải khớp **cùng một** claim True, còn **57** ca đủ điều kiện và chọn 10. Đã dựng candidate R3 trên **10 ca False H=1** ở cả top-5/top-10 và so bằng cùng checkpoint V4. Đây không phải 10 cặp chỉ khác một vế.
+4. **Train và xuất dự đoán relation mới:** đã có checkpoint relation `version_0/checkpoints/epoch=9-step=17350.ckpt` khoảng **1,3 GB**; eval top-10 hoàn tất **37/37 batch**. R3 đã đọc `test_relations_top10.json`, nhưng chưa có phép đối chiếu độc lập toàn bộ JSON với 9.041 claim test. “Top-10” là lấy 10 relation điểm cao khi **eval**, không phải thay mục tiêu train để model học một loại Evidence mới.
 
-Các dấu `...`/`<...>` trong bảng chỉ phần đường dẫn, **không phải lệnh copy để chạy lại**. Lượt train predictor mới không đồng nghĩa “train với 10 relation”: cấu hình `top_k=10` chọn mười relation điểm cao khi **eval**; mục tiêu học multi-label của predictor không đổi chỉ vì đổi top-k.
+### Việc đã thử nhưng chưa hoàn tất
+
+- Train lại hop predictor bị **CUDA OOM** đầu epoch; GPU lúc lỗi chỉ còn khoảng **48,81 MiB** do các job vLLM/TTS khác chiếm VRAM. Không có checkpoint hop mới; lượt thử sau dùng JSON hop cũ.
+- Dựng R3 **top-10 toàn bộ test**: train/dev đã qua, nhưng test chậm ở khoảng **3.528/9.041 claim**. Kiểm tra tiến trình thấy **99,9% một CPU**, RAM khoảng **11 GB**; lượt này đã dừng. Vì file candidate test chỉ được ghi khi duyệt xong, **chưa có candidate test top-10 hoàn chỉnh và chưa thể chạy V4 toàn test**. Không liệt kê lượt này như một thí nghiệm đã thành công.
 
 ### Top-10 thực sự giúp ở đâu?
 

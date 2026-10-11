@@ -52,6 +52,15 @@ def parse_args():
         help="Giữ tối đa K path/claim theo đúng thứ tự baseline.py dùng, để giới hạn RAM",
     )
     parser.add_argument(
+        "--max_expanded_states",
+        default=None,
+        type=int,
+        help=(
+            "Giới hạn số trạng thái DFS cho mỗi claim test-style; claim bị cắt "
+            "được ghi trong retrieval report. Không dùng cho train/dev gold."
+        ),
+    )
+    parser.add_argument(
         "--test_only_candidates",
         action="store_true",
         help="Chỉ sinh test candidate; dùng cho R2/R3 khi E2 đã train ở R1",
@@ -89,6 +98,7 @@ def main():
         dominance_audit=args.dominance_audit,
         report_max_paths=args.report_max_paths,
         store_max_paths=args.store_max_paths,
+        max_expanded_states=args.max_expanded_states,
         test_only_candidates=args.test_only_candidates,
         relation_prediction_path=args.relation_prediction_path,
         hop_prediction_path=args.hop_prediction_path,

@@ -89,6 +89,26 @@ class FaicoLiteRetrievalTest(unittest.TestCase):
         self.assertEqual(limited_groups["walkable"], [])
         self.assertEqual(diagnostics["search_stopped_after_connected_limit"], 1)
 
+    def test_expansion_limit_marks_incomplete_claim(self):
+        kg = {
+            "A": {"r": ["C", "B"]},
+            "B": {"s": ["Z"]},
+            "C": {"s": ["Z"]},
+        }
+        retriever = DeterministicPathRetriever(kg)
+        paths = {"A": [["r", "s"]]}
+        full, _ = retriever.search(["A", "Z"], paths)
+        bounded, diagnostics = retriever.search(
+            ["A", "Z"], paths, max_expanded_states=3
+        )
+
+        self.assertEqual(len(full["connected"]), 2)
+        self.assertEqual(bounded["connected"], full["connected"][:1])
+        self.assertEqual(diagnostics["expanded_states"], 3)
+        self.assertEqual(diagnostics["expansion_limit_reached"], 1)
+        with self.assertRaises(ValueError):
+            retriever.search(["A", "Z"], paths, max_expanded_states=0)
+
     def test_relation_budget_one_matches_no_repeat_constraint(self):
         # k=1 tái lập ràng buộc permutations cũ: không lặp relation.
         sequences = build_relation_sequences(["r1", "r2"], hop=3, relation_budget=1)
@@ -208,6 +228,28 @@ class FaicoLiteRetrievalTest(unittest.TestCase):
             self.assertTrue(Path(test_only_outputs["test"]).is_file())
             self.assertFalse(Path(test_only_outputs["train"]).exists())
             self.assertFalse(Path(test_only_outputs["dev"]).exists())
+
+            bounded_outputs = prepare_input(
+                data_path=str(data_dir),
+                kg_path=str(kg_path),
+                n_candid="2",
+                retrieval_mode="faico_lite",
+                output_dir=str(output_dir / "bounded"),
+                run_name="bounded",
+                test_only_candidates=True,
+                max_expanded_states=2,
+                relation_prediction_path=str(relation_prediction_path),
+                hop_prediction_path=str(hop_prediction_path),
+            )
+            with Path(bounded_outputs["report"]).open(encoding="utf-8") as handle:
+                bounded_report = json.load(handle)
+            self.assertEqual(
+                bounded_report["splits"]["test"]["expansion_limited_claims"],
+                [test_claim],
+            )
+            self.assertEqual(
+                bounded_report["splits"]["test"]["expansion_limit_reached"], 1
+            )
 
             audit_outputs = prepare_input(
                 data_path=str(data_dir),

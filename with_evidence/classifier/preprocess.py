@@ -175,6 +175,7 @@ def _retrieve_faico_lite(
     dominance_audit: bool,
     store_max_paths=None,
     allowed_relations=None,
+    max_expanded_states=None,
 ):
     """Lấy full path; nếu bật R4 thì audit raw dominance của Faico.
 
@@ -189,6 +190,7 @@ def _retrieve_faico_lite(
         relation_paths,
         allowed_relations=allowed_relations if dominance_audit else None,
         store_max_paths=store_max_paths,
+        max_expanded_states=max_expanded_states,
     )
 
     if not dominance_audit or allowed_relations is None:
@@ -237,6 +239,7 @@ def prepare_input(
     dominance_audit=False,
     report_max_paths=32,
     store_max_paths=None,
+    max_expanded_states=None,
     test_only_candidates=False,
     relation_prediction_path=None,
     hop_prediction_path=None,
@@ -261,6 +264,15 @@ def prepare_input(
         raise ValueError("report_max_paths must be at least 1")
     if store_max_paths is not None and store_max_paths < 1:
         raise ValueError("store_max_paths must be at least 1 when provided")
+    if max_expanded_states is not None and max_expanded_states < 1:
+        raise ValueError("max_expanded_states must be at least 1 when provided")
+    if max_expanded_states is not None and (
+        retrieval_mode != "faico_lite" or not test_only_candidates or dominance_audit
+    ):
+        raise ValueError(
+            "max_expanded_states is only supported for predicted test-style "
+            "Faico-Lite candidates without dominance_audit"
+        )
     if dominance_audit and store_max_paths is not None:
         raise ValueError(
             "store_max_paths cannot be combined with dominance_audit because R4 "
@@ -307,6 +319,7 @@ def prepare_input(
             "dominance_audit": bool(dominance_audit),
             "report_max_paths": int(report_max_paths),
             "store_max_paths": store_max_paths,
+            "max_expanded_states": max_expanded_states,
             "test_only_candidates": bool(test_only_candidates),
         },
         "splits": {},
@@ -355,6 +368,7 @@ def prepare_input(
             test_database = pkl.load(handle)
 
         test_candidates = {}
+        expansion_limited_claims = []
         test_stats = _new_split_stats(report_max_paths)
         test_started = perf_counter()
         for claim, example in tqdm(test_database.items(), total=len(test_database), desc="test: candidates"):
@@ -392,8 +406,11 @@ def prepare_input(
                     dominance_audit=dominance_audit,
                     store_max_paths=store_max_paths,
                     allowed_relations=predicted_relations,
+                    max_expanded_states=max_expanded_states,
                 )
                 diagnostics["generated_relation_sequences"] = len(relation_paths)
+                if diagnostics.get("expansion_limit_reached"):
+                    expansion_limited_claims.append(claim)
             test_candidates[claim] = groups
             _record_split_stats(test_stats, diagnostics, report_max_paths)
 
@@ -402,6 +419,7 @@ def prepare_input(
         _write_split(outputs["test"], test_candidates)
         test_stats["elapsed_seconds"] = round(perf_counter() - test_started, 3)
         report["splits"]["test"] = dict(test_stats)
+        report["splits"]["test"]["expansion_limited_claims"] = expansion_limited_claims
 
     manifest = {
         "created_at_utc": report["created_at_utc"],

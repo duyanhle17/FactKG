@@ -160,6 +160,7 @@ class DeterministicPathRetriever:
         relation_paths_by_entity: Mapping[object, Iterable[object]],
         allowed_relations: Optional[Sequence[object]] = None,
         store_max_paths: Optional[int] = None,
+        max_expanded_states: Optional[int] = None,
     ) -> Tuple[Dict[str, List[List[str]]], Dict[str, int]]:
         """Trả về ``connected``/``walkable`` và thống kê cho một claim.
 
@@ -171,9 +172,15 @@ class DeterministicPathRetriever:
         Nó vẫn duyệt hết KG, nhưng chỉ giữ prefix có thể được ``baseline.py``
         dùng khi lấy ``connected + walkable`` rồi cắt top-K. Nhờ đó builder
         không tích lũy những path mà E2 không bao giờ encode.
+
+        ``max_expanded_states`` dừng DFS sau tối đa N trạng thái cho một claim.
+        Artifact của claim bị dừng có thể thiếu path và được đánh dấu trong
+        diagnostics; không xem nó là retrieval đầy đủ khi đánh giá.
         """
         if store_max_paths is not None and store_max_paths < 1:
             raise ValueError("store_max_paths must be at least 1 when provided")
+        if max_expanded_states is not None and max_expanded_states < 1:
+            raise ValueError("max_expanded_states must be at least 1 when provided")
 
         ordered_entities = sorted(_ordered_unique(entities), key=_stable_key)
         entity_set = set(ordered_entities)
@@ -186,6 +193,7 @@ class DeterministicPathRetriever:
         walkable_seen = set()
         diagnostics: Counter = Counter()
         stop_after_connected_limit = False
+        stop_after_expansion_limit = False
 
         audit_relations = (
             tuple(str(relation) for relation in _ordered_unique(allowed_relations))
@@ -233,7 +241,15 @@ class DeterministicPathRetriever:
                 target_length = len(relation_path)
 
                 def visit(node: object, depth: int, nodes: List[object], used: Counter) -> None:
-                    if stop_after_connected_limit:
+                    nonlocal stop_after_expansion_limit
+                    if stop_after_connected_limit or stop_after_expansion_limit:
+                        return
+                    if (
+                        max_expanded_states is not None
+                        and diagnostics["expanded_states"] >= max_expanded_states
+                    ):
+                        stop_after_expansion_limit = True
+                        diagnostics["expansion_limit_reached"] = 1
                         return
                     diagnostics["expanded_states"] += 1
                     diagnostics["max_depth"] = max(diagnostics["max_depth"], depth)
@@ -277,13 +293,13 @@ class DeterministicPathRetriever:
                         used[relation] += 1
                         visit(tail, depth + 1, nodes + [tail], used)
                         used[relation] -= 1
-                        if stop_after_connected_limit:
+                        if stop_after_connected_limit or stop_after_expansion_limit:
                             return
 
                 visit(start, 0, [start], Counter())
-                if stop_after_connected_limit:
+                if stop_after_connected_limit or stop_after_expansion_limit:
                     break
-            if stop_after_connected_limit:
+            if stop_after_connected_limit or stop_after_expansion_limit:
                 break
 
         if store_max_paths is not None:

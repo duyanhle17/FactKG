@@ -66,6 +66,32 @@ def parse_args():
         help="Chỉ sinh test candidate; dùng cho R2/R3 khi E2 đã train ở R1",
     )
     parser.add_argument(
+        "--resume_test",
+        action="store_true",
+        help=(
+            "Save each completed test claim to SQLite and resume on rerun. "
+            "Requires --test_only_candidates."
+        ),
+    )
+    parser.add_argument(
+        "--retry_limited_at",
+        type=int,
+        default=None,
+        help=(
+            "Rerun only previously expansion-limited test claims at this larger "
+            "state cap; requires --resume_test and the original --max_expanded_states."
+        ),
+    )
+    parser.add_argument(
+        "--search_schedule",
+        choices=("dfs", "round_robin"),
+        default="dfs",
+        help=(
+            "DFS is the unchanged R3 default. round_robin interleaves "
+            "(entity, relation-chain) branches within a fixed test search budget."
+        ),
+    )
+    parser.add_argument(
         "--relation_prediction_path",
         default=None,
         help="Tùy chọn: đường dẫn rõ ràng tới test_relations_topN.json",
@@ -100,6 +126,9 @@ def main():
         store_max_paths=args.store_max_paths,
         max_expanded_states=args.max_expanded_states,
         test_only_candidates=args.test_only_candidates,
+        resume_test=args.resume_test,
+        retry_limited_at=args.retry_limited_at,
+        search_schedule=args.search_schedule,
         relation_prediction_path=args.relation_prediction_path,
         hop_prediction_path=args.hop_prediction_path,
         overwrite=args.overwrite,

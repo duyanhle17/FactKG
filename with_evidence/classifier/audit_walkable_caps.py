@@ -1,4 +1,4 @@
-"""Compare fixed-checkpoint R3/walk5/walk10 predictions on the same claims.
+"""Compare fixed-checkpoint R3/walkable-cap predictions on the same claims.
 
 This is a read-only diagnostic. It does not train V4 or rebuild KG candidates.
 The prediction pickles must come from the same checkpoint and evaluation setup.
@@ -38,6 +38,27 @@ def compare_group(indices, labels, predictions):
     }
 
 
+def compare_pair(indices, labels, predictions, left, right):
+    left_correct = [i for i in indices if predictions[left][i] == labels[i]]
+    right_correct = [i for i in indices if predictions[right][i] == labels[i]]
+    return {
+        "left_correct": len(left_correct),
+        "right_correct": len(right_correct),
+        "left_only": [i for i in indices if predictions[left][i] == labels[i]
+                      and predictions[right][i] != labels[i]],
+        "right_only": [i for i in indices if predictions[right][i] == labels[i]
+                       and predictions[left][i] != labels[i]],
+    }
+
+
+def walk_limit_from_name(name):
+    if name == "r3":
+        return None
+    if name.startswith("walk") and name[4:].isdigit():
+        return int(name[4:])
+    raise ValueError(f"Cannot infer walkable cap from prediction name {name!r}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data", required=True, type=Path,
@@ -49,6 +70,8 @@ def main():
     parser.add_argument("--walk10", required=True, type=Path)
     parser.add_argument("--extra", action="append", default=[], metavar="NAME=PATH",
                         help="Additional fixed-checkpoint prediction to compare with R3")
+    parser.add_argument("--pair", action="append", default=[], metavar="LEFT,RIGHT",
+                        help="Compare two named predictions claim by claim, e.g. walk5,walk7")
     parser.add_argument("--report", type=Path,
                         help="Retrieval report with expansion_limited_claims")
     parser.add_argument("--max_paths", type=int, default=32)
@@ -75,6 +98,17 @@ def main():
             parser.error(f"Invalid or duplicate --extra NAME=PATH: {spec!r}")
         results[name] = read_pickle(Path(path))
         extra_names.append(name)
+    pairs = []
+    for spec in args.pair:
+        left, separator, right = spec.partition(",")
+        if not separator or left not in results or right not in results or left == right:
+            parser.error(f"Invalid --pair LEFT,RIGHT: {spec!r}")
+        try:
+            walk_limit_from_name(left)
+            walk_limit_from_name(right)
+        except ValueError as exc:
+            parser.error(str(exc))
+        pairs.append((left, right))
     labels = [int(x) for x in values(results["r3"], "label")]
     types = [int(x) for x in values(results["r3"], "reasoning_type")]
     predictions = {
@@ -184,6 +218,59 @@ def main():
                     )
                     print(f"  {group_name:11} {name:8} n={len(ids):5} "
                           f"correct={correct:5} rescued={rescued:4} harmed={harmed:4}")
+
+    for left, right in pairs:
+        print(f"\nPAIRED {left} vs {right}")
+        for subset_name, subset_ids in subsets:
+            print(f"\n{subset_name}: {len(subset_ids)} claims")
+            groups = (
+                ("ALL", subset_ids),
+                ("MULTI-HOP", [i for i in subset_ids if types[i] == 1]),
+                ("CONJ TRUE", [i for i in subset_ids if types[i] == 2 and labels[i] == 1]),
+                ("CONJ FALSE", [i for i in subset_ids if types[i] == 2 and labels[i] == 0]),
+            )
+            for group_name, ids in groups:
+                row = compare_pair(ids, labels, predictions, left, right)
+                flipped = row["left_only"] + row["right_only"]
+                same_input = sum(
+                    visible_paths(candidates[claims[i]], walk_limit_from_name(left),
+                                  args.max_paths)
+                    == visible_paths(candidates[claims[i]], walk_limit_from_name(right),
+                                     args.max_paths)
+                    for i in flipped
+                )
+                print(
+                    f"  {group_name:11} n={len(ids):5} "
+                    f"{left}_correct={row['left_correct']:5} "
+                    f"{right}_correct={row['right_correct']:5} "
+                    f"{left}-only={len(row['left_only']):4} "
+                    f"{right}-only={len(row['right_only']):4} "
+                    f"same_input={same_input}"
+                )
+                # Do not duplicate examples across ALL, uncapped, and group rows.
+                example_subset = "UNCAPPED" if args.report else "ALL"
+                if subset_name != example_subset or group_name not in (
+                    "CONJ TRUE", "CONJ FALSE"
+                ):
+                    continue
+                for direction, flips in ((f"{left}-only", row["left_only"]),
+                                         (f"{right}-only", row["right_only"])):
+                    for i in flips[:args.examples]:
+                        claim = claims[i]
+                        candidate = candidates[claim]
+                        left_paths = visible_paths(
+                            candidate, walk_limit_from_name(left), args.max_paths
+                        )
+                        right_paths = visible_paths(
+                            candidate, walk_limit_from_name(right), args.max_paths
+                        )
+                        print(f"    {direction}: {claim}")
+                        print(f"      connected={len(candidate['connected'])}; "
+                              f"visible={len(left_paths)}/{len(right_paths)}")
+                        print(f"      Only {right} (up to 3): "
+                              f"{[p for p in right_paths if p not in left_paths][:3]!r}")
+                        print(f"      Only {left} (up to 3): "
+                              f"{[p for p in left_paths if p not in right_paths][:3]!r}")
 
 
 if __name__ == "__main__":

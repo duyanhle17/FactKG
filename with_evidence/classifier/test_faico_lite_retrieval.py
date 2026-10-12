@@ -10,14 +10,153 @@ import json
 import pickle
 import tempfile
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from faico_lite_retrieval import DeterministicPathRetriever, build_relation_sequences
 from preprocess import prepare_input
+import preprocess
 
 
 class FaicoLiteRetrievalTest(unittest.TestCase):
+    def test_round_robin_reaches_later_connected_branch_with_same_budget(self):
+        kg = {"A": {"wide": [f"W{i}" for i in range(20)], "target": ["Z"]}}
+        retriever = DeterministicPathRetriever(kg)
+        paths = {"A": [["wide"], ["target"]]}
+        dfs, dfs_diagnostics = retriever.search(
+            ["A", "Z"], paths, store_max_paths=2, max_expanded_states=4
+        )
+        balanced, balanced_diagnostics = retriever.search(
+            ["A", "Z"], paths, store_max_paths=2,
+            max_expanded_states=4, search_schedule="round_robin"
+        )
+        self.assertEqual(dfs["connected"], [])
+        self.assertEqual(balanced["connected"], [["A", "target", "Z"]])
+        self.assertEqual(dfs_diagnostics["expanded_states"], 4)
+        self.assertEqual(balanced_diagnostics["expanded_states"], 4)
+        self.assertEqual(balanced_diagnostics["expansion_limit_reached"], 1)
+        with self.assertRaises(ValueError):
+            retriever.search(["A", "Z"], paths, search_schedule="invalid")
+
+    def test_round_robin_uncapped_preserves_full_candidate_set(self):
+        kg = {
+            "A": {"r": ["B", "C"], "t": ["Z"]},
+            "B": {"s": ["Z"]},
+            "C": {"s": ["Z"]},
+        }
+        retriever = DeterministicPathRetriever(kg)
+        paths = {"A": [["r", "s"], ["t"]]}
+        dfs, _ = retriever.search(["A", "Z"], paths)
+        balanced, _ = retriever.search(["A", "Z"], paths, search_schedule="round_robin")
+        repeat, _ = retriever.search(["A", "Z"], paths, search_schedule="round_robin")
+        for group in ("connected", "walkable"):
+            self.assertEqual(
+                {tuple(path) for path in dfs[group]},
+                {tuple(path) for path in balanced[group]},
+            )
+        self.assertEqual(balanced, repeat)
+
+    def test_test_candidates_resume_after_interruption(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            data_dir = root / "data"
+            data_dir.mkdir()
+            output_dir = root / "candidates"
+            kg_path = root / "kg.pickle"
+            relations_path = root / "relations.json"
+            hops_path = root / "hops.json"
+            claims = ["first claim", "second claim"]
+            with kg_path.open("wb") as handle:
+                pickle.dump({"A": {"r": ["B"]}}, handle)
+            with (data_dir / "factkg_test.pickle").open("wb") as handle:
+                pickle.dump({
+                    claim: {"Entity_set": ["A", "B"], "Label": [True], "types": ["num1"]}
+                    for claim in claims
+                }, handle)
+            relations_path.write_text(json.dumps({
+                "claims": {str(i): claim for i, claim in enumerate(claims)},
+                "output": {str(i): ["r"] for i in range(len(claims))},
+            }), encoding="utf-8")
+            hops_path.write_text(json.dumps({
+                "claims": {str(i): claim for i, claim in enumerate(claims)},
+                "predict": {str(i): 1 for i in range(len(claims))},
+            }), encoding="utf-8")
+            kwargs = dict(
+                data_path=str(data_dir), kg_path=str(kg_path), n_candid="1",
+                retrieval_mode="faico_lite", output_dir=str(output_dir),
+                run_name="resume", test_only_candidates=True, resume_test=True,
+                max_expanded_states=50,
+                relation_prediction_path=str(relations_path),
+                hop_prediction_path=str(hops_path),
+            )
+            original = preprocess._retrieve_faico_lite
+            calls = []
+
+            def interrupted(*args, **options):
+                calls.append(1)
+                if len(calls) == 2:
+                    raise RuntimeError("simulated interruption")
+                return original(*args, **options)
+
+            with mock.patch.object(preprocess, "_retrieve_faico_lite", side_effect=interrupted):
+                with self.assertRaisesRegex(RuntimeError, "simulated interruption"):
+                    prepare_input(**kwargs)
+            self.assertTrue((output_dir / "progress_resume.sqlite3").is_file())
+            self.assertFalse((output_dir / "test_candid_paths_top1_resume.bin").exists())
+
+            resumed_calls = []
+
+            def counted(*args, **options):
+                resumed_calls.append(1)
+                return original(*args, **options)
+
+            with mock.patch.object(preprocess, "_retrieve_faico_lite", side_effect=counted):
+                outputs = prepare_input(**kwargs)
+            self.assertEqual(len(resumed_calls), 1)
+            with Path(outputs["test"]).open("rb") as handle:
+                resumed_candidates = pickle.load(handle)
+                self.assertEqual(list(resumed_candidates), claims)
+            plain_outputs = prepare_input(**{
+                **kwargs,
+                "output_dir": str(root / "plain"),
+                "run_name": "plain",
+                "resume_test": False,
+            })
+            with Path(plain_outputs["test"]).open("rb") as handle:
+                self.assertEqual(resumed_candidates, pickle.load(handle))
+            with Path(outputs["report"]).open(encoding="utf-8") as handle:
+                report = json.load(handle)
+            self.assertEqual(report["splits"]["test"]["resumed_claims"], 1)
+            self.assertEqual(len(report["splits"]["test"]["claim_diagnostics"]), 2)
+            with self.assertRaisesRegex(ValueError, "differ"):
+                prepare_input(**{**kwargs, "max_expanded_states": 51})
+
+            limited_kwargs = {
+                **kwargs,
+                "output_dir": str(root / "limited"),
+                "run_name": "limited",
+                "max_expanded_states": 1,
+            }
+            first_outputs = prepare_input(**limited_kwargs)
+            with Path(first_outputs["report"]).open(encoding="utf-8") as handle:
+                first_report = json.load(handle)
+            self.assertEqual(
+                first_report["splits"]["test"]["expansion_limited_claims"], claims
+            )
+            retry_outputs = prepare_input(**{**limited_kwargs, "retry_limited_at": 50})
+            with Path(retry_outputs["report"]).open(encoding="utf-8") as handle:
+                retry_report = json.load(handle)
+            self.assertEqual(retry_report["splits"]["test"]["retried_claims"], 2)
+            self.assertEqual(retry_report["splits"]["test"]["expansion_limited_claims"], [])
+            with Path(retry_outputs["test"]).open("rb") as handle:
+                retried_candidates = pickle.load(handle)
+            self.assertIn(["A", "r", "B"], retried_candidates[claims[0]]["connected"])
+            final_outputs = prepare_input(**{**limited_kwargs, "retry_limited_at": 50})
+            with Path(final_outputs["report"]).open(encoding="utf-8") as handle:
+                final_report = json.load(handle)
+            self.assertEqual(final_report["splits"]["test"]["retried_claims"], 0)
+
     def test_keeps_two_paths_with_the_same_endpoint(self):
         # Hai chain cùng tới Z đều phải giữ: E2 có thể đánh giá chúng khác nhau.
         kg = {
@@ -250,6 +389,25 @@ class FaicoLiteRetrievalTest(unittest.TestCase):
             self.assertEqual(
                 bounded_report["splits"]["test"]["expansion_limit_reached"], 1
             )
+
+            round_robin_outputs = prepare_input(
+                data_path=str(data_dir),
+                kg_path=str(kg_path),
+                n_candid="2",
+                retrieval_mode="faico_lite",
+                output_dir=str(output_dir / "round_robin"),
+                run_name="round_robin",
+                test_only_candidates=True,
+                max_expanded_states=2,
+                search_schedule="round_robin",
+                relation_prediction_path=str(relation_prediction_path),
+                hop_prediction_path=str(hop_prediction_path),
+            )
+            with Path(round_robin_outputs["report"]).open(encoding="utf-8") as handle:
+                round_robin_report = json.load(handle)
+            self.assertEqual(round_robin_report["config"]["search_schedule"], "round_robin")
+            with Path(round_robin_outputs["test"]).open("rb") as handle:
+                self.assertEqual(list(pickle.load(handle)), [test_claim])
 
             audit_outputs = prepare_input(
                 data_path=str(data_dir),

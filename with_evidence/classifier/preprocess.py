@@ -8,6 +8,8 @@ lần chạy vào thư mục riêng và không ghi đè candidate legacy.
 import json
 import os
 import pickle as pkl
+import hashlib
+import sqlite3
 from collections import Counter
 from datetime import datetime, timezone
 from itertools import chain, permutations
@@ -123,6 +125,63 @@ def _file_fingerprint(path: str) -> Dict[str, object]:
     }
 
 
+class _TestCandidateProgress:
+    """Commit one completed claim at a time; never persist a half-searched claim."""
+
+    def __init__(self, path: str, identity: Mapping[str, object]) -> None:
+        self.path = path
+        self.connection = sqlite3.connect(path)
+        self.connection.execute(
+            "CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+        )
+        self.connection.execute(
+            "CREATE TABLE IF NOT EXISTS claims ("
+            "claim TEXT PRIMARY KEY, position INTEGER NOT NULL, "
+            "groups BLOB NOT NULL, diagnostics TEXT NOT NULL, "
+            "elapsed_ms INTEGER NOT NULL, cap_used INTEGER)"
+        )
+        expected = json.dumps(identity, sort_keys=True, ensure_ascii=False)
+        row = self.connection.execute(
+            "SELECT value FROM metadata WHERE key = 'identity'"
+        ).fetchone()
+        if row is None:
+            with self.connection:
+                self.connection.execute(
+                    "INSERT INTO metadata (key, value) VALUES ('identity', ?)", (expected,)
+                )
+        elif row[0] != expected:
+            self.connection.close()
+            raise ValueError(
+                "Progress database inputs/config/code differ from this run. "
+                "Use the original settings or choose a new output_dir/run_name."
+            )
+
+    def load(self, claims: list) -> Dict[str, tuple]:
+        positions = {claim: i for i, claim in enumerate(claims)}
+        saved = {}
+        for claim, position, groups, diagnostics, elapsed_ms, cap_used in self.connection.execute(
+            "SELECT claim, position, groups, diagnostics, elapsed_ms, cap_used FROM claims"
+        ):
+            if claim not in positions or positions[claim] != position:
+                raise ValueError(f"Progress database contains an unexpected claim: {claim!r}")
+            saved[claim] = (pkl.loads(groups), json.loads(diagnostics), elapsed_ms, cap_used)
+        return saved
+
+    def save(self, claim: str, position: int, groups: object,
+             diagnostics: Mapping[str, int], elapsed_ms: int, cap_used: int) -> None:
+        with self.connection:
+            self.connection.execute(
+                "INSERT OR REPLACE INTO claims "
+                "(claim, position, groups, diagnostics, elapsed_ms, cap_used) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (claim, position, sqlite3.Binary(pkl.dumps(groups)),
+                 json.dumps(dict(diagnostics), sort_keys=True), elapsed_ms, cap_used),
+            )
+
+    def close(self) -> None:
+        self.connection.close()
+
+
 def _new_split_stats(report_max_paths: int) -> Counter:
     return Counter({"claims": 0, "report_max_paths": report_max_paths})
 
@@ -176,6 +235,7 @@ def _retrieve_faico_lite(
     store_max_paths=None,
     allowed_relations=None,
     max_expanded_states=None,
+    search_schedule="dfs",
 ):
     """Lấy full path; nếu bật R4 thì audit raw dominance của Faico.
 
@@ -191,6 +251,7 @@ def _retrieve_faico_lite(
         allowed_relations=allowed_relations if dominance_audit else None,
         store_max_paths=store_max_paths,
         max_expanded_states=max_expanded_states,
+        search_schedule=search_schedule,
     )
 
     if not dominance_audit or allowed_relations is None:
@@ -227,6 +288,13 @@ def _write_split(path: str, candidates: Mapping[str, object]) -> None:
         pkl.dump(dict(candidates), handle)
 
 
+def _write_split_atomic(path: str, candidates: Mapping[str, object]) -> None:
+    temporary = f"{path}.partial"
+    with open(temporary, "wb") as handle:
+        pkl.dump(dict(candidates), handle)
+    os.replace(temporary, path)
+
+
 def prepare_input(
     data_path,
     kg_path,
@@ -244,6 +312,9 @@ def prepare_input(
     relation_prediction_path=None,
     hop_prediction_path=None,
     overwrite=False,
+    resume_test=False,
+    retry_limited_at=None,
+    search_schedule="dfs",
 ):
     """Sinh artifact legacy hoặc Faico-Lite.
 
@@ -266,12 +337,32 @@ def prepare_input(
         raise ValueError("store_max_paths must be at least 1 when provided")
     if max_expanded_states is not None and max_expanded_states < 1:
         raise ValueError("max_expanded_states must be at least 1 when provided")
+    if search_schedule not in {"dfs", "round_robin"}:
+        raise ValueError("search_schedule must be 'dfs' or 'round_robin'")
+    if search_schedule == "round_robin" and (
+        retrieval_mode != "faico_lite" or not test_only_candidates
+        or dominance_audit or max_expanded_states is None
+    ):
+        raise ValueError(
+            "round_robin requires bounded test-only Faico-Lite without dominance_audit"
+        )
     if max_expanded_states is not None and (
         retrieval_mode != "faico_lite" or not test_only_candidates or dominance_audit
     ):
         raise ValueError(
             "max_expanded_states is only supported for predicted test-style "
             "Faico-Lite candidates without dominance_audit"
+        )
+    if resume_test and (not test_only_candidates or retrieval_mode != "faico_lite"):
+        raise ValueError("resume_test requires test-only Faico-Lite candidates")
+    if resume_test and overwrite:
+        raise ValueError("resume_test and overwrite cannot be combined")
+    if retry_limited_at is not None and (
+        not resume_test or max_expanded_states is None
+        or retry_limited_at <= max_expanded_states
+    ):
+        raise ValueError(
+            "retry_limited_at requires resume_test and must exceed max_expanded_states"
         )
     if dominance_audit and store_max_paths is not None:
         raise ValueError(
@@ -287,7 +378,13 @@ def prepare_input(
         hop_prediction_path = "../retrieve/model/hop_predict/predictions_hop.json"
 
     outputs = _candidate_output_paths(output_dir, n_candid, run_name)
+    progress_path = str(Path(output_dir) / f"progress_{run_name}.sqlite3")
     candidate_splits = ("test",) if test_only_candidates else ("train", "dev", "test")
+    if os.path.exists(progress_path) and not resume_test:
+        raise FileExistsError(
+            f"A resumable run exists at {progress_path}; use --resume_test "
+            "with its original settings or choose a new output_dir/run_name"
+        )
     if retrieval_mode == "faico_lite" and not overwrite:
         # Không vô tình ghi đè một thí nghiệm đã chạy xong. Muốn chạy lại cùng
         # tên thì người dùng phải chủ động truyền --overwrite ở script CLI.
@@ -298,7 +395,7 @@ def prepare_input(
             path for name, path in outputs.items()
             if name in {"report", "manifest"} and os.path.exists(path)
         )
-        if existing_outputs:
+        if existing_outputs and not (resume_test and os.path.exists(progress_path)):
             raise FileExistsError(
                 "Refusing to overwrite an existing Faico-Lite run. "
                 "Choose a new --run_name/output_dir or pass overwrite=True. "
@@ -321,6 +418,9 @@ def prepare_input(
             "store_max_paths": store_max_paths,
             "max_expanded_states": max_expanded_states,
             "test_only_candidates": bool(test_only_candidates),
+            "resume_test": bool(resume_test),
+            "retry_limited_at": retry_limited_at,
+            "search_schedule": search_schedule,
         },
         "splits": {},
     }
@@ -369,57 +469,125 @@ def prepare_input(
 
         test_candidates = {}
         expansion_limited_claims = []
+        claim_diagnostics = {}
         test_stats = _new_split_stats(report_max_paths)
         test_started = perf_counter()
-        for claim, example in tqdm(test_database.items(), total=len(test_database), desc="test: candidates"):
-            if claim not in relation_predictions:
-                raise KeyError(f"Test claim is missing from relation predictions: {claim!r}")
-            if claim not in hop_predictions:
-                raise KeyError(f"Test claim is missing from hop predictions: {claim!r}")
+        progress = None
+        saved = {}
+        if resume_test:
+            code_paths = (Path(__file__), Path(__file__).with_name("faico_lite_retrieval.py"))
+            identity = {
+                "format": 1,
+                "config": {
+                    key: value for key, value in report["config"].items()
+                    if key != "retry_limited_at"
+                },
+                "test_data": _file_fingerprint(os.path.join(data_path, "factkg_test.pickle")),
+                "kg": _file_fingerprint(kg_path),
+                "relations": _file_fingerprint(relation_prediction_path),
+                "hops": _file_fingerprint(hop_prediction_path),
+                "claim_order_sha256": hashlib.sha256(
+                    pkl.dumps(list(test_database))
+                ).hexdigest(),
+                "code_sha256": {
+                    path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                    for path in code_paths
+                },
+            }
+            progress = _TestCandidateProgress(progress_path, identity)
+            try:
+                saved = progress.load(list(test_database))
+            except BaseException:
+                progress.close()
+                raise
+            print(f"Resuming test candidates: {len(saved)}/{len(test_database)} claims saved")
+        report["config"]["progress_path"] = progress_path if resume_test else None
+        retried_claims = 0
+        try:
+            for position, (claim, example) in enumerate(
+                tqdm(test_database.items(), total=len(test_database), desc="test: candidates")
+            ):
+                previous = saved.get(claim)
+                retry = (
+                    previous is not None
+                    and retry_limited_at is not None
+                    and previous[1].get("expansion_limit_reached")
+                    and (previous[3] is None or previous[3] < retry_limited_at)
+                )
+                if previous is not None and not retry:
+                    groups, diagnostics, elapsed_ms, cap_used = previous
+                else:
+                    cap_used = retry_limited_at if retry else max_expanded_states
+                    claim_started = perf_counter()
+                    if claim not in relation_predictions:
+                        raise KeyError(f"Test claim is missing from relation predictions: {claim!r}")
+                    if claim not in hop_predictions:
+                        raise KeyError(f"Test claim is missing from hop predictions: {claim!r}")
 
-            predicted_relations = relation_predictions[claim]
-            predicted_hop = hop_predictions[claim]
-            if retrieval_mode == "legacy":
-                relation_paths = list(permutations(predicted_relations, r=predicted_hop))
-                relation_paths_by_entity = {
-                    entity: relation_paths for entity in example["Entity_set"]
-                }
-                groups = legacy_retriever.search(example["Entity_set"], relation_paths_by_entity)
-                diagnostics = {}
-            else:
-                # Test khong co Evidence gold. R1/R2/R3 khac nhau chinh o day:
-                # R1: exact H, k=1; R2: include_shorter_paths; R3: k=2.
-                relation_paths = build_relation_sequences(
-                    predicted_relations,
-                    predicted_hop,
-                    include_shorter_paths=include_shorter_paths,
-                    relation_budget=relation_budget,
-                )
-                relation_paths_by_entity = {
-                    entity: relation_paths for entity in example["Entity_set"]
-                }
-                groups, diagnostics = _retrieve_faico_lite(
-                    raw_kg,
-                    example["Entity_set"],
-                    relation_paths_by_entity,
-                    relation_budget=relation_budget,
-                    dominance_audit=dominance_audit,
-                    store_max_paths=store_max_paths,
-                    allowed_relations=predicted_relations,
-                    max_expanded_states=max_expanded_states,
-                )
-                diagnostics["generated_relation_sequences"] = len(relation_paths)
+                    predicted_relations = relation_predictions[claim]
+                    predicted_hop = hop_predictions[claim]
+                    if retrieval_mode == "legacy":
+                        relation_paths = list(permutations(predicted_relations, r=predicted_hop))
+                        relation_paths_by_entity = {
+                            entity: relation_paths for entity in example["Entity_set"]
+                        }
+                        groups = legacy_retriever.search(example["Entity_set"], relation_paths_by_entity)
+                        diagnostics = {}
+                    else:
+                        # Test khong co Evidence gold. R1/R2/R3 khac nhau chinh o day:
+                        # R1: exact H, k=1; R2: include_shorter_paths; R3: k=2.
+                        relation_paths = build_relation_sequences(
+                            predicted_relations,
+                            predicted_hop,
+                            include_shorter_paths=include_shorter_paths,
+                            relation_budget=relation_budget,
+                        )
+                        relation_paths_by_entity = {
+                            entity: relation_paths for entity in example["Entity_set"]
+                        }
+                        groups, diagnostics = _retrieve_faico_lite(
+                            raw_kg,
+                            example["Entity_set"],
+                            relation_paths_by_entity,
+                            relation_budget=relation_budget,
+                            dominance_audit=dominance_audit,
+                            store_max_paths=store_max_paths,
+                            allowed_relations=predicted_relations,
+                            max_expanded_states=cap_used,
+                            search_schedule=search_schedule,
+                        )
+                        diagnostics["generated_relation_sequences"] = len(relation_paths)
+                    elapsed_ms = max(0, round((perf_counter() - claim_started) * 1000))
+                    if progress is not None:
+                        progress.save(claim, position, groups, diagnostics, elapsed_ms, cap_used)
+                    if retry:
+                        retried_claims += 1
                 if diagnostics.get("expansion_limit_reached"):
                     expansion_limited_claims.append(claim)
-            test_candidates[claim] = groups
-            _record_split_stats(test_stats, diagnostics, report_max_paths)
+                test_candidates[claim] = groups
+                claim_diagnostics[claim] = {
+                    **diagnostics,
+                    "elapsed_milliseconds": elapsed_ms,
+                    "max_expanded_states_used": cap_used,
+                }
+                _record_split_stats(test_stats, diagnostics, report_max_paths)
+        finally:
+            if progress is not None:
+                progress.close()
 
-        if len(test_candidates) != len(test_database):
-            raise RuntimeError("test: candidate count does not match data count")
-        _write_split(outputs["test"], test_candidates)
+        if list(test_candidates) != list(test_database):
+            raise RuntimeError("test: candidate count/order does not match data")
+        if resume_test:
+            _write_split_atomic(outputs["test"], test_candidates)
+        else:
+            _write_split(outputs["test"], test_candidates)
         test_stats["elapsed_seconds"] = round(perf_counter() - test_started, 3)
+        test_stats["resumed_claims"] = len(saved)
+        test_stats["retried_claims"] = retried_claims
         report["splits"]["test"] = dict(test_stats)
         report["splits"]["test"]["expansion_limited_claims"] = expansion_limited_claims
+        if resume_test:
+            report["splits"]["test"]["claim_diagnostics"] = claim_diagnostics
 
     manifest = {
         "created_at_utc": report["created_at_utc"],

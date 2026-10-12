@@ -16,7 +16,7 @@ R4: chỉ audit budget dominance của Faico, không dùng nó để cắt artif
 
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 
@@ -161,6 +161,7 @@ class DeterministicPathRetriever:
         allowed_relations: Optional[Sequence[object]] = None,
         store_max_paths: Optional[int] = None,
         max_expanded_states: Optional[int] = None,
+        search_schedule: str = "dfs",
     ) -> Tuple[Dict[str, List[List[str]]], Dict[str, int]]:
         """Trả về ``connected``/``walkable`` và thống kê cho một claim.
 
@@ -181,6 +182,14 @@ class DeterministicPathRetriever:
             raise ValueError("store_max_paths must be at least 1 when provided")
         if max_expanded_states is not None and max_expanded_states < 1:
             raise ValueError("max_expanded_states must be at least 1 when provided")
+        if search_schedule not in {"dfs", "round_robin"}:
+            raise ValueError("search_schedule must be 'dfs' or 'round_robin'")
+        if search_schedule == "round_robin":
+            if self.dominance_mode != "off" or allowed_relations is not None:
+                raise ValueError("round_robin does not support dominance audit/pruning")
+            return self._search_round_robin(
+                entities, relation_paths_by_entity, store_max_paths, max_expanded_states
+            )
 
         ordered_entities = sorted(_ordered_unique(entities), key=_stable_key)
         entity_set = set(ordered_entities)
@@ -306,6 +315,100 @@ class DeterministicPathRetriever:
             # baseline.py luon uu tien connected truoc walkable. Trong luc
             # duyet chua biet se co bao nhieu connected, nen tam giu toi K
             # walkable; o day cat lai de artifact dung bang top-K legacy.
+            remaining_walkable = max(0, store_max_paths - len(connected))
+            if len(walkable) > remaining_walkable:
+                diagnostics["walkable_paths_trimmed_after_connected_priority"] = (
+                    len(walkable) - remaining_walkable
+                )
+                diagnostics["candidate_store_limit_reached"] = 1
+                walkable = walkable[:remaining_walkable]
+
+        diagnostics["connected_paths"] = len(connected)
+        diagnostics["walkable_paths"] = len(walkable)
+        diagnostics["total_paths"] = len(connected) + len(walkable)
+        return {"connected": connected, "walkable": walkable}, dict(diagnostics)
+
+    def _search_round_robin(
+        self,
+        entities: Sequence[object],
+        relation_paths_by_entity: Mapping[object, Iterable[object]],
+        store_max_paths: Optional[int],
+        max_expanded_states: Optional[int],
+    ) -> Tuple[Dict[str, List[List[str]]], Dict[str, int]]:
+        """Interleave DFS branches by (start entity, relation sequence).
+
+        No gold Evidence, label, or model score is used. A high-degree branch
+        cannot consume the entire state budget before other branches get turns.
+        The default DFS implementation above remains unchanged.
+        """
+        ordered_entities = sorted(_ordered_unique(entities), key=_stable_key)
+        entity_set = set(ordered_entities)
+        connected: List[List[str]] = []
+        walkable: List[List[str]] = []
+        connected_seen = set()
+        walkable_seen = set()
+        diagnostics: Counter = Counter()
+
+        def states(start: object, relation_path: Tuple[str, ...]):
+            def visit(node: object, depth: int, nodes: Tuple[object, ...]):
+                yield nodes, depth
+                if depth == len(relation_path):
+                    return
+                tails = self.get_tails(node, relation_path[depth])
+                if not tails:
+                    diagnostics["dead_end_states"] += 1
+                    return
+                for tail in tails:
+                    yield from visit(tail, depth + 1, nodes + (tail,))
+
+            return visit(start, 0, (start,))
+
+        active = deque()
+        for start in ordered_entities:
+            relation_paths = normalise_relation_paths(relation_paths_by_entity.get(start, ()))
+            diagnostics["relation_sequences"] += len(relation_paths)
+            for relation_path in relation_paths:
+                iterator = states(start, relation_path)
+                active.append((start, relation_path, iterator, next(iterator)))
+
+        while active:
+            if (max_expanded_states is not None
+                    and diagnostics["expanded_states"] >= max_expanded_states):
+                diagnostics["expansion_limit_reached"] = 1
+                break
+
+            start, relation_path, iterator, (nodes, depth) = active.popleft()
+            diagnostics["expanded_states"] += 1
+            diagnostics["max_depth"] = max(diagnostics["max_depth"], depth)
+            if depth == len(relation_path):
+                diagnostics["terminal_paths"] += 1
+                if nodes[0] == nodes[-1]:
+                    diagnostics["self_loop_paths_skipped"] += 1
+                else:
+                    serialised = serialize_path(nodes, relation_path)
+                    is_connected = nodes[-1] in entity_set and nodes[-1] != start
+                    bucket = connected if is_connected else walkable
+                    seen = connected_seen if is_connected else walkable_seen
+                    if serialised in seen:
+                        diagnostics["duplicate_serialized_paths_removed"] += 1
+                    elif store_max_paths is not None and len(bucket) >= store_max_paths:
+                        diagnostics["terminal_paths_not_stored_due_to_limit"] += 1
+                        diagnostics["candidate_store_limit_reached"] = 1
+                    else:
+                        seen.add(serialised)
+                        bucket.append(list(serialised))
+                        if (is_connected and store_max_paths is not None
+                                and len(connected) >= store_max_paths):
+                            diagnostics["search_stopped_after_connected_limit"] = 1
+                            break
+
+            try:
+                next_state = next(iterator)
+            except StopIteration:
+                continue
+            active.append((start, relation_path, iterator, next_state))
+
+        if store_max_paths is not None:
             remaining_walkable = max(0, store_max_paths - len(connected))
             if len(walkable) > remaining_walkable:
                 diagnostics["walkable_paths_trimmed_after_connected_priority"] = (

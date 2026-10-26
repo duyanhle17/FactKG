@@ -64,7 +64,7 @@ Paper hỏi: trên fact verification bằng KG, kết quả đến từ **cấu 
 - **Đầu vào evidence khác:** paper lấy *toàn bộ triple cách một cạnh* từ các entity của claim, rồi chuyển subgraph này thành văn bản. Họ **không** dùng relation top-5 → hop predictor → R3 → tối đa 32 path như repo.
 - **Cách chia reasoning type cũng khác:** paper cho phép một claim nằm ở nhiều nhóm, có thêm nhóm `Substitution`, và báo `Multi-claim` **3.293** claim test. `baseline.py` của repo gán một nhóm ưu tiên duy nhất, với `Conjunction` **3.069** claim test. Do đó không so trực tiếp `Multi-claim 96,42%` của paper với `Conjunction 84,03%` của repo như thể hai mẫu giống hệt. [Dataset và taxonomy](https://aclanthology.org/2026.fever-1.3.pdf)
 
-### Flow: bốn nhánh thí nghiệm, không phải một pipeline nối tiếp
+### Flow: năm nhánh thí nghiệm, không phải một pipeline nối tiếp
 
 | Nhánh | Flow thực tế | Câu hỏi mà nhánh trả lời |
 | --- | --- | --- |
@@ -80,7 +80,8 @@ Paper hỏi: trên fact verification bằng KG, kết quả đến từ **cấu 
 
 | Điều kiện | Điểm paper báo | Phạm vi đúng của con số |
 | --- | ---: | --- |
-| BERT trên subgraph một hop, train full | **92,68% accuracy** | Toàn FactKG test 9.041 claim. Đây là mốc mạnh nhất cần chú ý. |
+| BERT trên subgraph một hop, train full (tái lập trong FEVER 2026) | **92,68% accuracy** | Toàn FactKG test 9.041 claim; BERT-base nhận claim + danh sách triple, giới hạn 512 token, fine-tune toàn bộ tham số. |
+| [BERT một hop của Opsahl (2024)](https://aclanthology.org/2024.fever-1.32.pdf), được FEVER 2026 dẫn lại | **93,49% accuracy** | Kết quả **công trình trước**, không phải điểm model mới của FEVER 2026. Nếu đặt mục tiêu dẫn đầu overall accuracy, cần đối chiếu cả mốc này. |
 | XGBoost feature ký hiệu | **66,54% accuracy** | Toàn test, nhưng evidence/feature khác V4. |
 | QA-GNN và biến thể | **69,64% / 69,74% accuracy** | Toàn test trong protocol subgraph một hop. |
 | BERT, tập train chỉ **9.645 claim**, evidence top-10 do LLM lọc | **78,85% accuracy** | Không phải mốc full-train 92,68%; là thí nghiệm lọc evidence trên khoảng 10% train. |
@@ -88,9 +89,30 @@ Paper hỏi: trên fact verification bằng KG, kết quả đến từ **cấu 
 | GPT-4o-mini: chỉ claim → claim + KG | **71,67% → 84,33% accuracy** | Chỉ **300 claim test** được chọn, không phải toàn 9.041. |
 | GPT-4.1-mini: chỉ claim → claim + KG | **74,67% → 84,00% accuracy** | Cùng mẫu 300 claim. |
 
-Số liệu ở [bảng BERT/GNN](https://aclanthology.org/2026.fever-1.3.pdf), [bảng lọc evidence](https://aclanthology.org/2026.fever-1.3.pdf) và [bảng LLM](https://aclanthology.org/2026.fever-1.3.pdf). Tác giả lưu ý việc LLM **trích dẫn** triple chưa chứng minh nó thật sự suy luận dựa trên triple đó; mọi thí nghiệm vẫn bắt đầu từ subgraph một hop nên có thể thiếu cạnh trung gian của claim Multi-hop. [Limitations](https://aclanthology.org/2026.fever-1.3.pdf)
+Số liệu ở [bảng BERT/GNN](https://aclanthology.org/2026.fever-1.3.pdf), [bảng lọc evidence](https://aclanthology.org/2026.fever-1.3.pdf) và [bảng LLM](https://aclanthology.org/2026.fever-1.3.pdf). Riêng các điểm theo reasoning type của paper dùng **nhóm chồng lấn**, nên chưa thể trừ trực tiếp với các nhóm loại trừ nhau trong báo cáo R3/V4.
 
-**Bài học cho FactKG của bạn:** (1) cần tái lập hoặc đối chiếu BERT subgraph một hop như baseline cạnh tranh mạnh; (2) khi thử xếp/chọn path, phải giữ cùng **ngân sách evidence** để biết lợi ích đến từ giảm nhiễu hay từ thuật toán chọn; (3) muốn tuyên bố verifier dùng KG trung thực, cần thử thay/xóa evidence chứ không chỉ in attention hoặc citation.
+### Limitations tác giả nêu và điều cần kiểm tra thêm
+
+| Giới hạn trong FEVER 2026 | Hệ quả khi đọc điểm | Câu hỏi nghiên cứu tiếp cho FactKG của bạn |
+| --- | --- | --- |
+| **Một hop cho mọi nhánh thí nghiệm:** lấy các triple kề entity có trong claim; claim Multi-hop có thể cần cạnh trung gian ngoài subgraph này. | Overall 92,68% không chứng minh model đã truy xuất đủ chuỗi chứng cứ nhiều hop. Trong taxonomy của paper, BERT đạt **80,08% Multi-hop**, thấp hơn nhiều so với overall; không so trực tiếp với 81,16% Multi-hop của repo vì cách gán nhóm khác nhau. | Khi nào cần mở rộng graph qua entity trung gian, mở rộng theo relation nào, và dừng lúc nào để có proof đủ trong ngân sách? |
+| **Subgraph dày và BERT giới hạn 512 token:** nhiều đầu vào bị cắt. | Điểm số có thể phụ thuộc mạnh vào thứ tự triple và lượng evidence được giữ. Nhánh lọc top-10 chỉ dùng 9.645 claim train; không thể lấy 78,85% để kết luận lọc evidence kém hơn 92,68% khi ngân sách train khác. | So các cách chọn path/triple với cùng số token hoặc path, cùng train split và cùng verifier; đo tỷ lệ proof còn nguyên sau khi cắt. |
+| **Đánh giá LLM chỉ trên 300 claim test** và chỉ dùng GPT-4o-mini, GPT-4.1-mini. | Mức 84,33%/84,00% khi có KG chưa đại diện chắc chắn cho toàn bộ 9.041 claim hoặc các model khác. | Nếu dùng LLM, đánh giá đủ mẫu hoặc nêu rõ sai số và phạm vi; so với một model nhỏ có cùng evidence. |
+| **Có citation chưa chứng minh suy luận trung thực:** paper chưa xác minh thủ công các triple được trích có thực sự entail/contradict claim hay không. | Một verdict đúng vẫn có thể đi kèm proof sai hoặc chỉ chứng minh một phần claim. | Tạo tập kiểm tra proof theo từng vế; xóa, tráo entity hoặc thay cạnh thiết yếu rồi đo verdict có đổi đúng không. |
+
+Các giới hạn và hướng tiếp theo ở đây dựa trên [mục 12: Limitations](https://aclanthology.org/2026.fever-1.3.pdf); các con số BERT nằm ở [bảng 2–3](https://aclanthology.org/2026.fever-1.3.pdf). Tác giả cũng **đã đề xuất** học cách chọn cạnh để duyệt thay vì mở rộng một hop cố định. Vì vậy chỉ nói “retrieval nhiều bước có học” chưa đủ là đóng góp mới; cần chỉ rõ cách biểu diễn trạng thái chứng cứ, chính sách chọn cạnh/dừng, và điều kiện cho thấy nó tốt hơn các heuristic cùng ngân sách.
+
+### Hướng paper rút ra cho R3/V4
+
+**Câu hỏi đề xuất:** Làm sao tìm được **tập path nối được và đủ cho mọi điều kiện của claim** trong ngân sách evidence, rồi đưa ra verdict phụ thuộc thực sự vào tập path đó? Đây là giả thuyết cần kiểm tra, chưa phải kết luận rằng thuật toán mới sẽ vượt 93,49% overall.
+
+| Việc cần làm | Kết quả dùng để quyết định hướng nghiên cứu |
+| --- | --- |
+| Audit trên **dev có candidate do predictor + R3 sinh ra**: với từng claim sai, đánh dấu fact có trong KG, relation được dự đoán, path được R3 tạo, path có lọt top-32 và V4 có dùng đúng không. | Nếu thường thiếu cạnh/path thì phát triển retriever; nếu proof đã đủ mà verdict sai thì phát triển verifier theo từng vế. |
+| Thử retriever có trạng thái các điều kiện **chưa được chứng minh**: chọn bước mở rộng relation/entity tiếp theo, giữ chuỗi path nối được, dừng khi đủ proof hoặc hết ngân sách. Bắt đầu từ heuristic; chỉ huấn luyện chính sách nếu heuristic chưa đủ. | Đo proof recall/coverage, accuracy và số cạnh/token/chi phí; ablation riêng quyết định chọn cạnh, chọn path và dừng. |
+| So **R3/V4, BERT một hop, heuristic chọn top-K** dưới cùng split và ngân sách evidence khi có thể; thêm thử nghiệm xóa/thay cạnh thiết yếu. | Xác định lợi ích đến từ thuật toán retrieval hay từ nhiều evidence/model mạnh hơn; kiểm tra verdict có grounding không. |
+
+**Tiêu chí thành công:** cạnh tranh với các mốc **92,68%** (tái lập FEVER 2026) và **93,49%** ([Opsahl 2024](https://aclanthology.org/2024.fever-1.32.pdf)) về overall, đồng thời cải thiện retrieval/proof trên claim khó, độ trung thực của verdict và/hoặc chi phí suy luận. Chỉ vượt 92,68% vài phần mười điểm mà không kiểm soát protocol hoặc không chứng minh đóng góp phương pháp thì chưa phải câu chuyện paper đủ mạnh.
 
 ## 3. PGR 2025: Programmatic Graph Reasoning
 
@@ -130,9 +152,9 @@ Khi yêu cầu GPT-4o viết chương trình cho một claim mới, tác giả �
 | --- | ---: |
 | Overall | **86,82%** |
 | One-hop | **93,30%** |
-| Existence | **75,96%** |
-| Multi-hop | **89,95%** |
-| Multi-claim/Conjunction | **93,10%** |
+| Existence | **93,10%** |
+| Multi-hop | **75,96%** |
+| Multi-claim/Conjunction | **89,95%** |
 | Negation | **81,16%** |
 
 Đây là số paper báo ở [bảng 1](https://aclanthology.org/2025.findings-emnlp.293.pdf). Tác giả tự chỉ ra lỗi do sinh chương trình sai, xử lý biến/logic sai và thực thi chương trình chưa đủ mạnh; tập ví dụ few-shot hạn chế cũng có thể không phủ claim lạ. [Error analysis và limitations](https://aclanthology.org/2025.findings-emnlp.293.pdf)
@@ -174,14 +196,14 @@ Khi yêu cầu GPT-4o viết chương trình cho một claim mới, tác giả �
 | FEVER 2026 BERT, full one-hop subgraph | FactKG, 9.041 claim | Accuracy | **92,68%** | **80,08%** | **96,42%** | Overall là baseline đầu cuối rất mạnh cần đối chiếu protocol; theo nhóm **không cùng taxonomy** repo. |
 | FEVER 2026 LLM-filtered BERT, chỉ 9.645 train | FactKG, 9.041 claim | Accuracy | **78,85%** | **75,45%** | **80,66%** | Thí nghiệm về evidence selection, không so như mốc full-train. |
 | FEVER 2026 GPT-4o-mini có KG | FactKG, **mẫu 300 claim** | Accuracy | **84,33%** | — | — | Mẫu nhỏ có điều kiện chọn; không so với toàn 9.041. |
-| PGR GPT-4o, 12-shot | FactKG, 9.041 claim | Accuracy | **86,82%** | **89,95%** | **93,10%** | Đáng đối chiếu bài toán với repo; khác phương pháp, model và chi phí. |
+| PGR GPT-4o, 12-shot | FactKG, 9.041 claim | Accuracy | **86,82%** | **75,96%** | **89,95%** | Đáng đối chiếu bài toán với repo; khác phương pháp, model và chi phí. |
 | Repo: R3 Full + V4 | FactKG, 9.041 claim | Accuracy | **86,74%** | **81,16%** | **84,03%** | Mốc local được báo cáo cho checkpoint R3 rerun. |
 | Repo: R3 + `walk5`, cùng checkpoint V4 | FactKG, 9.041 claim | Accuracy | **87,55%** | **81,54%** | **85,76%** | Kết quả **thăm dò trên test đã xem nhiều lần**; không dùng để tuyên bố đã vượt PGR. |
 
 Ba điểm cần nhớ khi đọc bảng:
 
 1. **FEVER 2024 dùng dataset/metric khác hẳn.** `63% AVeriTeC score` và `86,74% FactKG accuracy` không có phép trừ ý nghĩa.
-2. **PGR và repo gần nhau về overall nhưng khác điểm mạnh.** PGR hơn nhiều ở Multi-hop/Conjunction theo bảng paper; repo cao hơn đáng kể ở Existence (**94,94%** so với **75,96%**) và Negation (**88,43%** so với **81,16%**). Đây là đối chiếu chéo paper, chưa phải phép ablation kiểm soát cùng implementation.
+2. **PGR và repo gần nhau về overall nhưng khác điểm mạnh.** PGR cao hơn ở Conjunction/Multi-claim (**89,95%** so với **84,03%**); repo cao hơn ở Multi-hop (**81,16%** so với **75,96%**), Existence (**94,94%** so với **93,10%**) và Negation (**88,43%** so với **81,16%**). Đây là đối chiếu chéo paper, chưa phải phép ablation kiểm soát cùng implementation.
 3. **FEVER 2026 BERT 92,68% là cảnh báo quan trọng về baseline.** Không thể nói R3 + V4 hiện dẫn đầu FactKG; muốn so công bằng cần tái lập cùng dữ liệu, entity set, KG, cách dựng evidence, split và metric. Riêng per-type của paper 2026 còn dùng nhãn nhóm chồng lấn.
 
 ## 7. Ý tưởng cập nhật FactKG: từ “đoán nhãn” đến “proof đủ cho từng vế”

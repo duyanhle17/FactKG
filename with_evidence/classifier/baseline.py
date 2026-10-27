@@ -60,7 +60,7 @@ except ImportError:
 parser = argparse.ArgumentParser()
 parser.add_argument('--data_path', type=str, help='')
 parser.add_argument('--kg_path', type=str, help='')
-parser.add_argument('--lr', default=5e-5, type=float, help='')
+parser.add_argument('--lr', default=None, type=float, help='Learning rate; cat defaults to 5e-6, other models to 5e-5')
 parser.add_argument(
     '--model_cls',
     default="cat",
@@ -91,7 +91,7 @@ parser.add_argument('--test_candid_path', default="", type=str, help='Optional p
 # Remove this block together with PairDataset/PairDataCollator and the two
 # pair classifiers below to return to the original E0/Sentence code path.
 # ============================================================
-parser.add_argument('--batch_size', default=32, type=int, help='Claim batch size for sent/cat (E0)')
+parser.add_argument('--batch_size', default=None, type=int, help='Claim batch size; cat defaults to 4, other models to 32')
 parser.add_argument('--pair_batch_size', default=1, type=int, help='Claim batch size for mean/gearlite; each claim has K BERT pairs')
 parser.add_argument('--max_paths', default=None, type=int, help='First K paths; default is all for E0 and 32 for E1/E2; 0 always means all')
 parser.add_argument('--pair_max_length', default=128, type=int, help='Maximum tokens for each [CLS] Claim [SEP] Path [SEP] pair')
@@ -111,6 +111,14 @@ parser.add_argument('--checkpoint_path', default='', type=str, help='Checkpoint 
 
 args = parser.parse_args()
 
+# FEVER 2026 uses lr=5e-6 and batch=4 for its single-string BERT baseline.
+# Apply those defaults only to this repo's concat baseline. Its candidate-path
+# retrieval, cased BERT and optimizer still differ from the paper's pipeline.
+if args.lr is None:
+    args.lr = 5e-6 if args.model_cls == "cat" else 5e-5
+if args.batch_size is None:
+    args.batch_size = 4 if args.model_cls == "cat" else 32
+
 if args.max_paths is None:
     # Preserve the original README behavior for E0 while giving pair models a
     # finite, safer default. Controlled E0/E1/E2/E3/E4/E5/E6 runs should pass K explicitly.
@@ -123,6 +131,8 @@ if args.max_paths < 0:
     parser.error('--max_paths must be >= 0')
 if args.batch_size <= 0 or args.pair_batch_size <= 0:
     parser.error('--batch_size and --pair_batch_size must be > 0')
+if args.lr <= 0:
+    parser.error('--lr must be > 0')
 if not 1 <= args.pair_max_length <= 512:
     parser.error('--pair_max_length must be in [1, 512] for bert-base-cased')
 if args.gradient_accumulation_steps < 0:
@@ -588,6 +598,7 @@ if is_pair_model and args.max_paths == 0:
 
 print(
     f"Run config: model={args.model_cls}, device={DEVICE}, seed={args.seed}, "
+    f"lr={args.lr}, "
     f"max_paths={'all' if args.max_paths == 0 else args.max_paths}, "
     f"physical_batch={loader_batch_size}, "
     f"gradient_accumulation={gradient_accumulation_steps}, "

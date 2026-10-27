@@ -1,5 +1,7 @@
 # Ba paper 2026 cần đọc tiếp cho hướng FactKG R3 → V4
 
+> Các nội dung chính của tài liệu này đã được gộp vào [survey tổng hợp và gợi ý báo cáo mentor](SURVEY_FEVER2024_FEVER2026_PGR_FACTKG.md). Bản dưới đây giữ các ghi chú đọc paper chi tiết.
+
 *Cập nhật 27/10/2026.* Tài liệu này nối tiếp [survey FEVER 2026 và PGR](SURVEY_FEVER2024_FEVER2026_PGR_FACTKG.md). Ba paper ở đây không phải ba phiên bản của cùng một pipeline. DARE và TrustFV thử **kiểm chứng claim trên KG FactKG**; *More Evidence Is Not Always More Support* chủ yếu nghiên cứu **cách verifier gộp evidence dạng đoạn văn trên HoVer**, không báo accuracy FactKG.
 
 ## 1. DARE — tìm, lập luận hai chiều, quyết định có tìm tiếp

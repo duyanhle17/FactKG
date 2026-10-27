@@ -1,8 +1,10 @@
-# Đọc ba paper liên quan đến hướng FactKG hiện tại
+# Survey paper và hướng nghiên cứu FactKG R3 → V4
 
-**Phạm vi.** Trong tài liệu này, “FEVER 2024” chỉ paper *The Automated Verification of Textual Claims (AVeriTeC) Shared Task* đăng tại workshop FEVER 2024; “FEVER 2026” chỉ paper *Evidence Grounding vs. Memorization: Why Neural Semantics Matter for Knowledge Graph Fact Verification* đăng tại FEVER 2026. FEVER là tên workshop; hai paper này không phải hai phiên bản liên tiếp của cùng một model. Paper thứ ba là *Fact Verification on Knowledge Graph via Programmatic Graph Reasoning* (PGR, Findings EMNLP 2025). Nếu “FEVER 2024” được dùng để chỉ một paper khác, cần thay riêng mục 1.
+*Cập nhật 27/10/2026; bản tổng hợp để chuẩn bị trao đổi với mentor.*
 
-**Cách đọc điểm.** Accuracy trên FactKG, AVeriTeC score, điểm trên toàn test và điểm trên mẫu 300 câu là các đại lượng khác nhau. Bảng so sánh cuối tài liệu đặt chúng cạnh nhau để định vị bài toán. Muốn so **hệ thống đầu cuối**, cần kiểm tra cùng claim test, nhãn, KG/nguồn thông tin được phép dùng và metric; evidence được *truy xuất* có thể khác vì đó chính là một phần phương pháp. Muốn quy chênh lệch điểm cho **một thành phần** như cách gộp path, phải giữ các thành phần còn lại cố định.
+**Phạm vi.** Tài liệu gộp sáu công trình: AVeriTeC Shared Task ở FEVER 2024, *Evidence Grounding vs. Memorization* ở FEVER 2026, PGR, DARE, TrustFV và *More Evidence Is Not Always More Support*. FEVER là tên workshop, không phải tên một model xuyên suốt các năm. AVeriTeC dùng claim web; paper cuối dùng HoVer; bốn paper còn lại có thí nghiệm trên FactKG. Nếu “FEVER 2024” được dùng để chỉ một paper khác AVeriTeC Shared Task, cần thay riêng mục 1.
+
+**Cách đọc điểm.** Accuracy trên FactKG, AVeriTeC score, điểm trên toàn test và điểm trên mẫu 300 câu là các đại lượng khác nhau. Bảng ở mục 9 đặt chúng cạnh nhau để định vị bài toán. Muốn so **hệ thống đầu cuối**, cần kiểm tra cùng claim test, nhãn, KG/nguồn thông tin được phép dùng và metric; evidence được *truy xuất* có thể khác vì đó chính là một phần phương pháp. Muốn quy chênh lệch điểm cho **một thành phần** như cách gộp path, phải giữ các thành phần còn lại cố định.
 
 ## Từ vựng cần nắm trước
 
@@ -161,7 +163,59 @@ Khi yêu cầu GPT-4o viết chương trình cho một claim mới, tác giả �
 
 **Bài học cho FactKG của bạn:** PGR đã làm **phân rã claim + AND**. Nếu paper mới chỉ nói “thêm kiểm tra từng vế và lấy AND”, đóng góp sẽ khó phân biệt với PGR. Điểm có thể phát triển là **kiểm soát mức độ đủ evidence và mức không chắc chắn** khi một vế không được tìm thấy, hoặc dùng verifier nhỏ để rẻ hơn mà vẫn giải thích được từng vế.
 
-## 4. FactKG trong repo này đang chạy thế nào?
+## 4. DARE 2026: tìm chứng cứ, lập luận hai chiều, quyết định tìm tiếp
+
+**Nguồn:** Li et al., [*DARE: Dialectical Agentic Reasoning for Structured Knowledge Fact Checking*](https://aclanthology.org/2026.findings-emnlp.1315/), Findings EMNLP 2026; [PDF](https://arxiv.org/pdf/2609.13808).
+
+**Mục tiêu và nguyên nhân.** Các chương trình suy luận có thể sinh relation không hợp lệ, đi theo một nhánh sai rồi không sửa, hoặc chú ý quá nhiều đến bằng chứng ủng hộ. DARE thử một vòng lặp `retrieve → reason → reflect`: tìm triple có thật trong KG, xem cả lý do ủng hộ lẫn phản bác, rồi quyết định đã đủ evidence hay cần tìm tiếp. Đây là một giải pháp cho **quy trình tìm và đánh giá evidence**, không chỉ là thay classifier cuối. [DARE, abstract và phương pháp](https://aclanthology.org/2026.findings-emnlp.1315/).
+
+| Chặng | Flow DARE | So với R3/V4 |
+| --- | --- | --- |
+| Retrieval | Từ entity của claim, lấy triple kề trong KG, lọc liên quan và có thể mở rộng tiếp qua entity mới. | R3 duyệt theo top relation + hop đã dự đoán; chưa quyết định tìm tiếp dựa trên trạng thái chứng cứ từng vế. |
+| Reasoning | Cùng evidence, tạo lập luận ủng hộ và phản bác với hai mức tin cậy. | V4 gộp biểu diễn Claim–Path để ra nhãn, chưa có hai hướng lập luận tường minh. |
+| Reflection/verdict | Nếu còn bất định, tìm thêm; nếu đủ hoặc hết ngân sách vòng lặp, ra nhãn. | Repo hiện quyết định sau một lần dựng tập candidate. |
+
+DARE dùng **Qwen3-8B zero-shot**, tối đa **5 vòng** trong thiết lập chính. Trên **9.041 claim FactKG test**, paper báo **88,12% overall**, **77,28% Multi-hop**, **87,58% Conjunction** và **88,89% Negation**. DARE hơn PGR về overall (**86,82%**) nhưng thấp hơn PGR ở Conjunction (**87,58% so với 89,95%**). Tác giả còn kiểm tra ablation cho lập luận hai chiều, phản tư và lọc evidence. [DARE, Bảng 1–2](https://arxiv.org/pdf/2609.13808).
+
+**Giới hạn và bài học:** duyệt mọi triple quanh node bậc cao có thể tốn kém; một hướng cho R3 là chỉ tìm tiếp khi một điều kiện của claim còn thiếu chứng cứ, đồng thời đo chi phí. DARE đã nghiên cứu *support vs refute* và *reflection*, nên chỉ thêm vòng lặp LLM tương tự chưa đủ là đóng góp mới. [DARE, Limitations](https://arxiv.org/pdf/2609.13808).
+
+## 5. TrustFV 2026: sinh path hợp lệ và chấm từng bước
+
+**Nguồn:** Zhang et al., [*TrustFV: Trustworthy Fact Verification on Knowledge Graph via Process Reward-Guided Step-Level Constrained Decoding*](https://aclanthology.org/2026.findings-emnlp.726/), Findings EMNLP 2026; [PDF](https://aclanthology.org/2026.findings-emnlp.726.pdf).
+
+**Mục tiêu và nguyên nhân.** Trong beam search trên KG, chọn nhánh kém ở bước đầu có thể kéo sai cả path. TrustFV ràng buộc token/path được sinh theo KG đã truy xuất và dùng process reward model để ước lượng khả năng thành công cùng độ bất định **sau mỗi bước**. Có path tồn tại trong KG vẫn chưa tự chứng minh path đó đủ cho toàn claim. [TrustFV, abstract](https://aclanthology.org/2026.findings-emnlp.726/).
+
+| Chặng | Flow TrustFV | So với R3/V4 |
+| --- | --- | --- |
+| Chuẩn bị evidence | Retriever lấy một số subgraph liên quan; mã hóa cạnh hợp lệ thành KG-Trie. | R3 sinh path từ KG theo relation/hop predictor; `walk5` là giới hạn path sau retrieval, khác top-5 subgraph đầu vào TrustFV. |
+| Học | SFT Llama-3.1-8B-Instruct bằng LoRA để sinh path và nhãn; dùng Monte Carlo rollouts huấn luyện UPRM chấm tiến độ. | Repo học predictor và BERT verifier; không học reward model cho từng bước duyệt path. |
+| Suy luận | Constrained decoding → UPRM chấm từng bước và độ bất định → beam search loại nhánh rủi ro → verdict. | R3 tìm candidate trước, V4 đọc tối đa 32 path và phân loại. |
+
+TrustFV **có thử trên FactKG** và thêm một benchmark khác là **CWQ**. Điểm **90,07% ± 1,6** là accuracy FactKG qua năm lượt, không phải điểm CWQ; paper còn báo **88,14% Multi-hop** và **87,12% Multi-claim**. Survey nguồn ghi **99.133 train + 500 validation + 9.041 FactKG test**; cần kiểm tra claim ID và cách tiền xử lý khi tái lập, vì cách chia train/validation khác FEVER 2026. Đây là **9.041 claim test**, không phải một test FactKG mới. [TrustFV, Bảng 1 và phụ lục](https://aclanthology.org/2026.findings-emnlp.726.pdf).
+
+**Lưu ý khi trích baseline PGR từ TrustFV:** bảng chính của TrustFV gắn mức **86,82%** với backbone `GPT-4o-mini`, trong khi [PGR gốc](https://aclanthology.org/2025.findings-emnlp.293.pdf) dùng `GPT-4o` cho con số đó; một phụ lục TrustFV còn báo PGR chạy lại **85,13% ± 2,9**. Cần phân biệt điểm trích dẫn, cấu hình backbone và kết quả tái lập thay vì gộp thành một phép so kiểm soát. [TrustFV, bảng chính và phụ lục](https://aclanthology.org/2026.findings-emnlp.726.pdf).
+
+**Đọc chữ “SOTA” đúng phạm vi.** *State of the art* nghĩa là kết quả tốt nhất được công bố **trong benchmark, metric và điều kiện so sánh được xác định**. TrustFV tuyên bố SOTA trên FactKG và CWQ; tuy nhiên **90,07%** thấp hơn **92,68%** BERT một hop của FEVER 2026 và **93,49%** của [Opsahl 2024](https://aclanthology.org/2024.fever-1.32.pdf). Vì vậy có thể nói TrustFV dẫn đầu **các baseline được đặt trong bảng của họ**, chưa nên gọi đó là overall accuracy cao nhất từng báo trên FactKG. Protocol và chi phí suy luận vẫn cần đối chiếu trước khi xếp hạng chặt chẽ. [TrustFV](https://aclanthology.org/2026.findings-emnlp.726/), [FEVER 2026](https://aclanthology.org/2026.fever-1.3.pdf).
+
+**Giới hạn và bài học:** beam width/pruning hiện cố định theo claim; phương pháp còn phụ thuộc subgraph được lấy ở đầu vào. KG-constrained path bảo đảm cạnh hợp lệ, chưa bảo đảm **đủ mọi vế**. Với R3/V4, câu hỏi có ích là ngân sách/path selection theo mức chứng cứ còn thiếu, với chi phí thấp hơn; cần so với TrustFV chứ không thể chỉ đổi sang beam search chung chung. [TrustFV, Limitations](https://aclanthology.org/2026.findings-emnlp.726.pdf).
+
+## 6. More Evidence Is Not Always More Support: đo hành vi của verifier
+
+**Nguồn:** Zhong et al., [*More Evidence Is Not Always More Support: Controlled Diagnostics for Evidence Aggregation in Fact Verification*](https://aclanthology.org/2026.findings-emnlp.747/), Findings EMNLP 2026; [PDF](https://aclanthology.org/2026.findings-emnlp.747.pdf). Thí nghiệm chính dùng **HoVer**, evidence là đoạn/câu văn; paper **không báo accuracy FactKG**.
+
+**Mục tiêu và nguyên nhân.** Hai verifier có F1 gần nhau vẫn có thể hành xử khác hẳn khi được thêm evidence: thêm bản lặp của fact đã biết không nên được coi như một fact mới; thêm fact còn thiếu có thể thay đổi verdict. Accuracy trên tập evidence cuối cùng che đi khác biệt này. [Abstract và diagnostic](https://aclanthology.org/2026.findings-emnlp.747/).
+
+| Chặng | Flow thí nghiệm | Liên hệ R3/V4 |
+| --- | --- | --- |
+| Dựng cặp kiểm tra | Từ annotation HoVer, hai trường hợp dùng chung một evidence prefix đang thiếu một fact. | Có thể dựng prefix gồm path chứng minh vế 1 của Conjunction. |
+| Can thiệp | Thêm fact **lặp lại** hoặc thêm fact **còn thiếu**; thử lặp nguyên evidence nhiều lần. | So thêm path trùng vế 1 với thêm path chứng minh vế 2 trong cùng ngân sách 32 path. |
+| Đo và thử model | Đo tỷ lệ đổi nhãn do lặp, độ lợi khi có fact mới; thử bộ gộp LGED có trạng thái. | Đo V4 có đếm path trùng như chứng cứ độc lập và có nhận ra vế mới không. |
+
+Diagnostic chính có **1.180 cặp same-prefix**. Các supervised verifier có clean F1 khoảng **0,6324–0,6528** nhưng tỷ lệ đổi nhãn sau tám lần lặp khác nhau rõ, từ **8,5% đến 30,3%**. Những điểm này **không phải accuracy FactKG**. Áp dụng diagnostic sang KG path sẽ là một mở rộng bối cảnh; muốn thành paper phương pháp còn cần một mô hình hoặc thuật toán xử lý lỗi được phát hiện. [Kết quả và giới hạn](https://aclanthology.org/2026.findings-emnlp.747/).
+
+Paper còn thử **LGED**, một bộ gộp có trạng thái, với tỷ lệ đổi nhãn sau tám lần lặp khoảng **1,37%**. Không xếp hạng trực tiếp điểm nền LGED với các verifier khác vì bảng dùng **accuracy** cho LGED nhưng nhiều dòng dùng **F1**. Diagnostic chính dựa vào annotation supporting-fact của HoVer; khi chuyển sang FactKG phải tự xác định thế nào là một fact/path độc lập và kiểm tra cả tình huống retrieval chưa đủ. [Paper và Limitations](https://aclanthology.org/2026.findings-emnlp.747.pdf).
+
+## 7. FactKG trong repo này đang chạy thế nào?
 
 **Nguồn nội bộ:** [README](README.md), [retriever](with_evidence/classifier/faico_lite_retrieval.py), [preprocess](with_evidence/classifier/preprocess.py), [GEARLite V4](with_evidence/classifier/baseline.py), [báo cáo 8–19/10](báo%20cáo%2014_10.md).
 
@@ -176,7 +230,7 @@ Khi yêu cầu GPT-4o viết chương trình cho một claim mới, tác giả �
 
 **Độ lệch hiện tại:** verifier được train/chọn trên candidate theo Evidence vàng, nhưng test phải dựa vào relation/hop dự đoán. Repo đã tạo dev “giống test” để chẩn đoán, nhưng cần giữ rõ nó khác dev vàng khi diễn giải kết quả. [Preprocess](with_evidence/classifier/preprocess.py), [báo cáo](báo%20cáo%2014_10.md).
 
-## 5. So sánh flow: điểm nào tương ứng, điểm nào không?
+## 8. So sánh flow: điểm nào tương ứng, điểm nào không?
 
 | Chặng | AVeriTeC/FEVER 2024 baseline | FEVER 2026 trên FactKG | PGR trên FactKG | Repo của bạn: R3 + V4 |
 | --- | --- | --- | --- | --- |
@@ -187,26 +241,41 @@ Khi yêu cầu GPT-4o viết chương trình cho một claim mới, tác giả �
 | Ra verdict | BERT trên claim + Q–A | BERT/GNN/LLM tùy nhánh thí nghiệm | `VERIFY` theo logic của chương trình | BERT Claim–Path + attention V4, chưa có nhãn từng vế |
 | Chấm evidence | Q–A METEOR + verdict, metric AVeriTeC | Chủ yếu accuracy; có kiểm tra evidence/citation ở thí nghiệm LLM | Có chương trình/evidence trung gian, bảng chính báo accuracy | Chủ yếu accuracy/F1; có audit path, pilot từng vế nhưng chưa có metric proof coverage chính thức |
 
-## 6. So sánh điểm, kèm điều kiện đọc
+Ba công trình mới bổ sung các lựa chọn khác ở **giữa retrieval và verdict**:
+
+| Công trình | Điểm thay đổi chính trong flow | Câu hỏi còn mở cho R3/V4 |
+| --- | --- | --- |
+| DARE | Duyệt triple có thật → lập luận ủng hộ/phản bác → nếu chưa chắc thì tìm tiếp. | Có thể tìm tiếp **chỉ cho vế thiếu chứng cứ** mà không cần LLM trên mọi claim không? |
+| TrustFV | Subgraph → KG-Trie → sinh path bị ràng buộc → reward và prune theo từng bước. | Path hợp lệ đã **đủ cho mọi vế** chưa, và có đạt chất lượng tương tự với chi phí thấp hơn không? |
+| More Evidence… | Giữ cùng evidence prefix → thêm fact lặp hoặc fact mới → quan sát verdict. | V4 có nhạy sai với path lặp và có nhận ra path cho vế còn thiếu không? |
+
+## 9. So sánh điểm, kèm điều kiện đọc
 
 | Hệ thống/điều kiện | Dataset test | Metric | Overall | Multi-hop | Conjunction/Multi-claim | Có thể kết luận gì? |
 | --- | --- | --- | ---: | ---: | ---: | --- |
 | FEVER 2024 baseline | AVeriTeC, 2.214 claim hidden | AVeriTeC score | **11%** | — | — | Không so số học với FactKG. |
 | FEVER 2024 đội thắng `TUDA_MAI` | AVeriTeC, cùng hidden test | AVeriTeC score | **63%** | — | — | Đây là điểm **đội thắng**, không phải baseline paper. Không so số học với FactKG. |
+| Opsahl 2024 BERT, subgraph một hop | FactKG test | Accuracy | **93,49%** | **80,32%** | **97,51%** | Mốc BERT một hop gốc; cách chia nhóm theo paper này cần kiểm tra khi so từng claim với repo. |
 | FEVER 2026 BERT, full one-hop subgraph | FactKG, 9.041 claim | Accuracy | **92,68%** | **80,08%** | **96,42%** | Overall là baseline đầu cuối rất mạnh cần đối chiếu protocol; theo nhóm **không cùng taxonomy** repo. |
 | FEVER 2026 LLM-filtered BERT, chỉ 9.645 train | FactKG, 9.041 claim | Accuracy | **78,85%** | **75,45%** | **80,66%** | Thí nghiệm về evidence selection, không so như mốc full-train. |
 | FEVER 2026 GPT-4o-mini có KG | FactKG, **mẫu 300 claim** | Accuracy | **84,33%** | — | — | Mẫu nhỏ có điều kiện chọn; không so với toàn 9.041. |
 | PGR GPT-4o, 12-shot | FactKG, 9.041 claim | Accuracy | **86,82%** | **75,96%** | **89,95%** | Đáng đối chiếu bài toán với repo; khác phương pháp, model và chi phí. |
+| DARE Qwen3-8B, zero-shot | FactKG, 9.041 claim | Accuracy | **88,12%** | **77,28%** | **87,58%** | Hơn PGR overall, thấp hơn PGR Conjunction; flow và chi phí khác repo. |
+| TrustFV, trung bình 5 lượt | FactKG, 9.041 claim được paper báo | Accuracy | **90,07% ± 1,6** | **88,14%** | **87,12%** | Chia train/dev khác; cần kiểm tra claim ID, taxonomy và chi phí trước khi so per-type chặt chẽ. |
 | Repo: R3 Full + V4 | FactKG, 9.041 claim | Accuracy | **86,74%** | **81,16%** | **84,03%** | Mốc local được báo cáo cho checkpoint R3 rerun. |
 | Repo: R3 + `walk5`, cùng checkpoint V4 | FactKG, 9.041 claim | Accuracy | **87,55%** | **81,54%** | **85,76%** | Kết quả **thăm dò trên test đã xem nhiều lần**; không dùng để tuyên bố đã vượt PGR. |
 
-Ba điểm cần nhớ khi đọc bảng:
+Nguồn các hàng mới: [Opsahl 2024, Table 1](https://aclanthology.org/2024.fever-1.32.pdf), [DARE, Table 1](https://arxiv.org/pdf/2609.13808), [TrustFV, Table 1](https://aclanthology.org/2026.findings-emnlp.726.pdf). Hàng TrustFV dùng trung bình nhiều lượt, còn các điểm repo là kết quả checkpoint/candidate được ghi rõ trong [báo cáo 14/10](báo%20cáo%2014_10.md).
+
+Các điểm cần nhớ khi đọc bảng:
 
 1. **FEVER 2024 dùng dataset/metric khác hẳn.** `63% AVeriTeC score` và `86,74% FactKG accuracy` không có phép trừ ý nghĩa.
 2. **PGR và repo gần nhau về overall nhưng khác điểm mạnh.** PGR cao hơn ở Conjunction/Multi-claim (**89,95%** so với **84,03%**); repo cao hơn ở Multi-hop (**81,16%** so với **75,96%**), Existence (**94,94%** so với **93,10%**) và Negation (**88,43%** so với **81,16%**). Đây là đối chiếu chéo paper, chưa phải phép ablation kiểm soát cùng implementation.
 3. **FEVER 2026 BERT 92,68% là cảnh báo quan trọng về baseline.** Không thể nói R3 + V4 hiện dẫn đầu FactKG; muốn so công bằng cần tái lập cùng dữ liệu, entity set, KG, cách dựng evidence, split và metric. Riêng per-type của paper 2026 còn dùng nhãn nhóm chồng lấn.
+4. **DARE và TrustFV có mục tiêu phương pháp ngoài overall accuracy.** DARE thử tìm tiếp theo mức bất định; TrustFV giảm nhánh sinh sai bằng KG-Trie và reward từng bước. TrustFV báo 90,07% nhưng thấp hơn hai mốc BERT một hop 92,68% và 93,49%; chữ “SOTA” trong paper cần đọc theo tập baseline và protocol họ đánh giá.
+5. **More Evidence… dùng HoVer, không nằm trong bảng FactKG.** Giá trị trực tiếp cho repo là phép đo *path lặp* so với *path chứng minh vế mới*, không phải một con số accuracy để xếp hạng với V4.
 
-## 7. Ý tưởng cập nhật FactKG: từ “đoán nhãn” đến “proof đủ cho từng vế”
+## 10. Ý tưởng cập nhật FactKG: từ “đoán nhãn” đến “proof đủ cho từng vế”
 
 ### Câu hỏi paper khả thi
 
@@ -228,9 +297,50 @@ Hiện báo cáo repo ghi: `walk5` làm Conjunction True tốt hơn, nhưng tăn
 
 **Giả thuyết nên kiểm tra, chưa phải kết luận:** một chính sách chọn path **cân bằng độ phủ các vế** kết hợp verifier biết phân biệt support/contradict/unknown sẽ giảm lỗi False → True do “một vế đúng kéo cả câu thành True”, mà vẫn giữ cải thiện Multi-hop của R3. Nếu audit cho thấy phần lớn lỗi là relation predictor bỏ sót relation, trọng tâm paper nên chuyển về retrieval theo từng vế thay vì đổi V4.
 
+## 11. Gợi ý báo cáo với mentor: từ survey đến một câu hỏi nghiên cứu
+
+### 11.1. Bức tranh điểm số cần phát biểu chính xác
+
+- **Repo hiện tại:** R3 + V4 đạt **86,74%** trên 9.041 claim test; `walk5` đạt **87,55%**, nhưng đây là ablation chọn/quan sát trên test nhiều lần, chưa phải kết quả độc lập để tuyên bố đã vượt paper khác. [Báo cáo repo](báo%20cáo%2014_10.md).
+- **Mốc FactKG trong survey:** PGR **86,82%**, DARE **88,12%**, TrustFV **90,07%**, BERT một hop FEVER 2026 **92,68%**, Opsahl 2024 **93,49%**. Điểm overall giúp định vị, không quy ngay chênh lệch cho một thuật toán vì backbone, evidence, train/dev và chi phí khác nhau. Các điểm theo nhóm của FEVER 2026 dùng nhãn **chồng lấn**, khác năm nhóm loại trừ nhau của repo. [PGR](https://aclanthology.org/2025.findings-emnlp.293.pdf), [DARE](https://aclanthology.org/2026.findings-emnlp.1315/), [TrustFV](https://aclanthology.org/2026.findings-emnlp.726/), [FEVER 2026](https://aclanthology.org/2026.fever-1.3.pdf), [Opsahl](https://aclanthology.org/2024.fever-1.32.pdf).
+- **Bối cảnh dataset:** PGR/DARE/TrustFV và nhánh BERT FEVER 2026 đều báo FactKG test **9.041 claim**; “sáu nhóm cộng thành 15.080” của FEVER 2026 là **lượt gán nhóm chồng lấn**, không phải 15.080 claim test. AVeriTeC dùng dataset/metric khác; More Evidence… dùng HoVer. TrustFV còn thử CWQ, nhưng 90,07% là điểm FactKG. [FEVER 2026, Table 1](https://aclanthology.org/2026.fever-1.3.pdf), [TrustFV](https://aclanthology.org/2026.findings-emnlp.726/).
+
+### 11.2. Vì sao paper có overall accuracy thấp hơn vẫn có đóng góp?
+
+| Paper | Câu hỏi/đóng góp mà overall accuracy một mình không mô tả hết |
+| --- | --- |
+| [PGR](https://aclanthology.org/2025.findings-emnlp.293/) | Biến claim thành chương trình `SEARCH/MATCH/VERIFY` để thấy điều kiện và bước suy luận nào bị sai. |
+| [DARE](https://aclanthology.org/2026.findings-emnlp.1315/) | Xem cả evidence ủng hộ và phản bác, rồi quyết định khi nào cần tìm tiếp; báo 88,12% với backbone 8B. |
+| [TrustFV](https://aclanthology.org/2026.findings-emnlp.726/) | Sinh path hợp lệ theo KG và dùng reward/độ bất định ở mỗi bước để tránh đi tiếp trên nhánh rủi ro; còn thử trên CWQ. |
+| [More Evidence Is Not Always More Support](https://aclanthology.org/2026.findings-emnlp.747/) | Tạo diagnostic cho hành vi **fact mới vs fact lặp**: hai verifier có F1 gần nhau vẫn có thể rất khác về độ nhạy với evidence. |
+| [FEVER 2026](https://aclanthology.org/2026.fever-1.3/) | Phân tích vai trò của ngữ nghĩa BERT, cấu trúc KG, chọn evidence và tri thức LLM đã nhớ; 92,68% là kết quả tái lập baseline BERT, không phải toàn bộ đóng góp của paper. |
+
+Một paper có thể đóng góp **phương pháp**, **phép đo/diagnostic**, **độ trung thực của chứng cứ**, **khả năng chuyển sang bài toán khác** hoặc **chất lượng–chi phí**. Muốn theo hướng này, ta vẫn phải xác định lỗi cụ thể, đo được nó trên mẫu đủ rộng, so với baseline mạnh và làm ablation; vài case minh họa chưa đủ.
+
+### 11.3. Giả thuyết từ chính lỗi R3/V4
+
+**Câu hỏi để trình mentor:** *Trong giới hạn 32 path, hệ thống sai vì KG/R3 chưa đưa đủ chứng cứ vào đầu vào, hay vì các path cần thiết đã có nhưng verifier vẫn kết luận sai?*
+
+Pilot dev gồm **9 case được chọn để chẩn đoán**, không phải mẫu đại diện: **5 Conjunction False** có path khớp thủ công **1/2 vế** mà V4 dự đoán True; **2 Conjunction True** có path khớp **2/2 vế** trong `first5` nhưng V4 dự đoán False, rồi `ranked5` dự đoán True. Hai case còn lại cần rà soát claim–Evidence gốc. “Path khớp 2/2 vế” là chú giải thủ công ban đầu, chưa tự động chứng minh một proof hợp lệ hay giải thích nhân quả của V4; “không thấy path” không đồng nghĩa fact sai trong KG. [Pilot từng vế](conjunction_clause_pilot_20261019_154232.md), [báo cáo phân tích](báo%20cáo%2014_10.md).
+
+| Bước kế tiếp trên **dev kiểu test** | Kết quả quyết định hướng paper |
+| --- | --- |
+| Audit claim sai theo chuỗi: fact nằm trong KG? relation/hop predictor lấy đúng? R3 có tạo path? path có lọt top-32? từng vế được hỗ trợ, bị phản bác hay chưa thấy? V4 ra nhãn gì? | Tách lỗi **retrieval**, **chọn path**, **verifier**, và trường hợp nhãn/claim cần rà soát. |
+| Giữ claim và prefix evidence, thử thêm path lặp vế cũ, thêm path cho vế thiếu, xóa/thay path thiết yếu; giữ ngân sách path/token cố định khi so. | Đo **flip rate do lặp**, độ lợi từ fact mới, proof coverage và việc verdict có thực sự phụ thuộc evidence. Diagnostic này lấy cảm hứng từ More Evidence…, cần ghi rõ phần mở rộng sang KG path. |
+| Nếu thiếu proof trước top-32, thử chọn/mở rộng path theo vế chưa được chứng minh; nếu proof đã ở đầu vào mà V4 sai, thử verifier chấm từng vế và gộp với trạng thái `support/contradict/unknown`. | Chọn thuật toán theo nguyên nhân quan sát được; ablation riêng retrieval và verifier thay vì đổi nhiều tầng cùng lúc. |
+
+**Điều kiện đánh giá:** cùng 9.041 claim và cùng cách chia nhóm khi so per-type; giữ cố định encoder, dữ liệu train và evidence budget khi muốn quy lợi ích cho riêng retriever hoặc verifier. Báo overall và accuracy theo True/False, Multi-hop, Conjunction, proof coverage, độ nhạy với can thiệp, thời gian/GPU/LLM calls. Các test đã xem nhiều lần phải được trình bày là thăm dò; chốt thiết kế trên dev và, nếu khả thi, chuẩn bị một holdout độc lập cho kết luận cuối.
+
+### 11.4. Đoạn trình bày ngắn có thể nói với mentor
+
+> Em đã survey các hướng program reasoning, tìm kiếm lặp có tự sửa, sinh path bị ràng buộc bởi KG và đánh giá độ nhạy với evidence. R3/V4 của em hiện đạt 86,74% trên FactKG test; ablation `walk5` đạt 87,55% nhưng mới mang tính thăm dò. Các paper khác cho thấy accuracy cao không phải đóng góp duy nhất: có paper giải lỗi chọn nhánh, có paper đo liệu verdict có phụ thuộc fact mới hay chỉ bị path lặp làm nhiễu. Pilot dev của em có ca thiếu chứng cứ cho một vế mà V4 vẫn đoán True, và ca hai vế đều có path khớp nhưng V4 vẫn đoán False. Em muốn audit có hệ thống để tách lỗi retrieval, chọn path và verifier; sau đó phát triển phương pháp theo dõi evidence đủ cho từng vế và kiểm tra verdict có thật sự phụ thuộc evidence. Em mong thầy/cô góp ý liệu câu hỏi này đủ tập trung cho paper và nên ưu tiên bộ audit/metric hay thuật toán sau audit.
+
 ## Nguồn chính để đọc tiếp
 
 1. Schlichtkrull et al. (2024), [*The Automated Verification of Textual Claims (AVeriTeC) Shared Task*](https://aclanthology.org/2024.fever-1.1/).
 2. Upadhyay et al. (2026), [*Evidence Grounding vs. Memorization: Why Neural Semantics Matter for Knowledge Graph Fact Verification*](https://aclanthology.org/2026.fever-1.3/).
 3. Hao & Wu (2025), [*Fact Verification on Knowledge Graph via Programmatic Graph Reasoning*](https://aclanthology.org/2025.findings-emnlp.293/).
-4. Trong repo: [báo cáo thực nghiệm mới nhất](báo%20cáo%2014_10.md), [pilot từng vế](conjunction_clause_pilot_20261019_154232.md), [mã retriever R3](with_evidence/classifier/faico_lite_retrieval.py), [mã V4](with_evidence/classifier/baseline.py).
+4. Li et al. (2026), [*DARE: Dialectical Agentic Reasoning for Structured Knowledge Fact Checking*](https://aclanthology.org/2026.findings-emnlp.1315/).
+5. Zhang et al. (2026), [*TrustFV: Trustworthy Fact Verification on Knowledge Graph via Process Reward-Guided Step-Level Constrained Decoding*](https://aclanthology.org/2026.findings-emnlp.726/).
+6. Zhong et al. (2026), [*More Evidence Is Not Always More Support*](https://aclanthology.org/2026.findings-emnlp.747/).
+7. Trong repo: [báo cáo thực nghiệm mới nhất](báo%20cáo%2014_10.md), [pilot từng vế](conjunction_clause_pilot_20261019_154232.md), [mã retriever R3](with_evidence/classifier/faico_lite_retrieval.py), [mã V4](with_evidence/classifier/baseline.py).

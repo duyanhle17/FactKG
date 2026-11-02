@@ -1,0 +1,7 @@
+/outputs/
+/data/
+/cache/
+*.pkl
+*.pt
+*.pth
+*.safetensors

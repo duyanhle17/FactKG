@@ -1,0 +1,3 @@
+[submodule "fever2026_official/upstream"]
+	path = fever2026_official/upstream
+	url = https://github.com/AnkitKUpadhyay/kg-fact-verification-semantics.git

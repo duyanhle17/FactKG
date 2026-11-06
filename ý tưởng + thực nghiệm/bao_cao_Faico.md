@@ -1,6 +1,6 @@
 # Báo cáo paper Faico: Faithful and Complete Knowledge Graph Augmented Reasoning
 
-Nguồn: [Faico: Faithful and Complete Knowledge Graph Augmented Reasoning](<Faico_ Faithful and Complete Knowledge Graph Augmented Reasoning.pdf>).
+Nguồn: [Faico: Faithful and Complete Knowledge Graph Augmented Reasoning](<../Faico_ Faithful and Complete Knowledge Graph Augmented Reasoning.pdf>).
 
 ## Tóm tắt một câu
 

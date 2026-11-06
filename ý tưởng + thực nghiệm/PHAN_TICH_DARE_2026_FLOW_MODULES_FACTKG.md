@@ -79,7 +79,7 @@ Theo đồ thị độ nhạy trong paper, tối đa 3/4/5/6 vòng cho **80,60/8
 | Có tìm tiếp khi chưa chắc? | Retrieval một lượt theo relation/hop dự đoán, với giới hạn trạng thái nếu cấu hình; sau đó V4 phân loại. | Có, dựa vào confidence gap giữa lập luận ủng hộ/phản bác, tối đa 5 vòng. |
 | “Không thấy path” nghĩa là gì? | V4 vẫn phải ra nhãn từ input còn lại. | Controller vẫn phải ra nhãn sau vòng cuối; prompt Reasoner cho phép dùng kiến thức nội tại. Không có trạng thái unknown cuối. |
 
-Đối chiếu code repo: [R3 tạo relation sequences từ dự đoán test](with_evidence/classifier/preprocess.py), [V4 đọc `connected + walkable`, giới hạn `max_paths`](with_evidence/classifier/baseline.py). **Không thể chuyển trực tiếp điểm DARE sang checkpoint V4** vì cả evidence, backbone, huấn luyện và số lần suy luận đều khác.
+Đối chiếu code repo: [R3 tạo relation sequences từ dự đoán test](../with_evidence/classifier/preprocess.py), [V4 đọc `connected + walkable`, giới hạn `max_paths`](../with_evidence/classifier/baseline.py). **Không thể chuyển trực tiếp điểm DARE sang checkpoint V4** vì cả evidence, backbone, huấn luyện và số lần suy luận đều khác.
 
 ## 6. Có thể mượn gì, và thử ra sao để thành đóng góp riêng?
 

@@ -217,7 +217,7 @@ Paper còn thử **LGED**, một bộ gộp có trạng thái, với tỷ lệ �
 
 ## 7. FactKG trong repo này đang chạy thế nào?
 
-**Nguồn nội bộ:** [README](README.md), [retriever](with_evidence/classifier/faico_lite_retrieval.py), [preprocess](with_evidence/classifier/preprocess.py), [GEARLite V4](with_evidence/classifier/baseline.py), [báo cáo 8–19/10](báo%20cáo%2014_10.md).
+**Nguồn nội bộ:** [README](../README.md), [retriever](../with_evidence/classifier/faico_lite_retrieval.py), [preprocess](../with_evidence/classifier/preprocess.py), [GEARLite V4](../with_evidence/classifier/baseline.py), [báo cáo 8–19/10](báo%20cáo%2014_10.md).
 
 ### Cần tách flow huấn luyện và flow suy luận
 
@@ -228,7 +228,7 @@ Paper còn thử **LGED**, một bộ gộp có trạng thái, với tỷ lệ �
 | Suy luận test | Claim + `Entity_set` → relation predictor `top-5` + hop predictor `H` → R3 duyệt path trong DBpedia, cho path dài `1..H` và lặp relation tối đa 2 lần → ưu tiên `connected`, rồi `walkable` → V4 đọc tối đa `K=32` path → True/False | V4 mã hóa từng cặp Claim–Path, dùng `c_claim`, trung bình candidate `c_set` và attention để gộp path. Không có phép kiểm tra từng vế tường minh. |
 | Thử nghiệm `walk5` | Giữ checkpoint V4 và path `connected`; chỉ giới hạn còn tối đa **5 path `walkable`** ở đầu vào suy luận | Đây là **inference ablation**, chưa phải model mới được train với chính sách walk5. `walk5` không có nghĩa relation top-5. |
 
-**Độ lệch hiện tại:** verifier được train/chọn trên candidate theo Evidence vàng, nhưng test phải dựa vào relation/hop dự đoán. Repo đã tạo dev “giống test” để chẩn đoán, nhưng cần giữ rõ nó khác dev vàng khi diễn giải kết quả. [Preprocess](with_evidence/classifier/preprocess.py), [báo cáo](báo%20cáo%2014_10.md).
+**Độ lệch hiện tại:** verifier được train/chọn trên candidate theo Evidence vàng, nhưng test phải dựa vào relation/hop dự đoán. Repo đã tạo dev “giống test” để chẩn đoán, nhưng cần giữ rõ nó khác dev vàng khi diễn giải kết quả. [Preprocess](../with_evidence/classifier/preprocess.py), [báo cáo](báo%20cáo%2014_10.md).
 
 ## 8. So sánh flow: điểm nào tương ứng, điểm nào không?
 
@@ -343,4 +343,4 @@ Pilot dev gồm **9 case được chọn để chẩn đoán**, không phải m�
 4. Li et al. (2026), [*DARE: Dialectical Agentic Reasoning for Structured Knowledge Fact Checking*](https://aclanthology.org/2026.findings-emnlp.1315/).
 5. Zhang et al. (2026), [*TrustFV: Trustworthy Fact Verification on Knowledge Graph via Process Reward-Guided Step-Level Constrained Decoding*](https://aclanthology.org/2026.findings-emnlp.726/).
 6. Zhong et al. (2026), [*More Evidence Is Not Always More Support*](https://aclanthology.org/2026.findings-emnlp.747/).
-7. Trong repo: [báo cáo thực nghiệm mới nhất](báo%20cáo%2014_10.md), [pilot từng vế](conjunction_clause_pilot_20261019_154232.md), [mã retriever R3](with_evidence/classifier/faico_lite_retrieval.py), [mã V4](with_evidence/classifier/baseline.py).
+7. Trong repo: [báo cáo thực nghiệm mới nhất](báo%20cáo%2014_10.md), [pilot từng vế](conjunction_clause_pilot_20261019_154232.md), [mã retriever R3](../with_evidence/classifier/faico_lite_retrieval.py), [mã V4](../with_evidence/classifier/baseline.py).

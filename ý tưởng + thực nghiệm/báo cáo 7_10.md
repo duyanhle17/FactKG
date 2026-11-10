@@ -24,7 +24,7 @@ Pipeline top-5 đã tạo relation/H dự đoán, dựng candidate R3 cho **test
 ### Các task đã hoàn thành
 
 1. **Audit relation top-5/top-10 trên dev:** đối chiếu prediction với Evidence, kiểm tra hai JSON có cùng claim và mức độ top-5 nằm trong top-10; tạo báo cáo số liệu, ví dụ và nhóm 5 claim True H=1 để xem kỹ. Đây chỉ là audit **độ phủ relation**, không phải điểm V4.
-2. **Thử end-to-end trên mẫu nhỏ:** đã dựng candidate R3 **thành công cho 5 True H=1** ở cả top-5/top-10, nạp **cùng checkpoint V4/K=32**, rồi so nhãn. Việc này khác với lượt R3 **toàn test** bị dừng ở dưới. Xem [bảng so sánh](v4_comparison_20261005_083018.md).
+2. **Thử end-to-end trên mẫu nhỏ:** đã dựng candidate R3 **thành công cho 5 True H=1** ở cả top-5/top-10, nạp **cùng checkpoint V4/K=32**, rồi so nhãn. Việc này khác với lượt R3 **toàn test** bị dừng ở dưới.
 3. **Tạo và kiểm tra đối chứng False:** bản chọn đầu quá lỏng có **446** ca đủ điều kiện; đã sửa để entity **và** họ relation mới phải khớp **cùng một** claim True, còn **57** ca đủ điều kiện và chọn 10. Đã dựng candidate R3 trên **10 ca False H=1** ở cả top-5/top-10 và so bằng cùng checkpoint V4. Đây không phải 10 cặp chỉ khác một vế.
 4. **Train và xuất dự đoán relation mới:** đã có checkpoint relation `version_0/checkpoints/epoch=9-step=17350.ckpt` khoảng **1,3 GB**; eval top-10 hoàn tất **37/37 batch**. R3 đã đọc `test_relations_top10.json`, nhưng chưa có phép đối chiếu độc lập toàn bộ JSON với 9.041 claim test. “Top-10” là lấy 10 relation điểm cao khi **eval**, không phải thay mục tiêu train để model học một loại Evidence mới.
 

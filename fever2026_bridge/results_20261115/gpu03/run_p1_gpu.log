@@ -1,0 +1,80 @@
+[Sun Nov 15 01:20:39 PM UTC 2026] p0_fever_dev: GPU free 2453 MiB
+accuracy 90.0648% (11948/13266) in 102s
+  one-hop      94.4641%  (n=2547)
+  multi-hop    77.3558%  (n=3555)
+  conjunction  95.9463%  (n=4317)
+  existence    96.7742%  (n=930)
+  negation     91.2885%  (n=1917)
+[Sun Nov 15 01:22:30 PM UTC 2026] p1_gold_mh_dev: GPU free 2453 MiB
+accuracy 93.9695% (12466/13266) in 102s
+  one-hop      94.4641%  (n=2547)
+  multi-hop    91.9269%  (n=3555)
+  conjunction  95.9463%  (n=4317)
+  existence    96.7742%  (n=930)
+  negation     91.2885%  (n=1917)
+group                       n     base      new   delta  +flip  -flip    NFR McNemar p
+overall                 13266   90.06%   93.97%  +3.90    564     46  0.35% 2.18e-114
+one-hop                  2547   94.46%   94.46%  +0.00      0      0  0.00%         1
+one-hop/True             1299   98.08%   98.08%  +0.00      0      0  0.00%         1
+one-hop/False            1248   90.71%   90.71%  +0.00      0      0  0.00%         1
+multi-hop                3555   77.36%   91.93% +14.57    564     46  1.29% 2.18e-114
+multi-hop/True           1819   68.06%   98.02% +29.96    553      8  0.44% 6.22e-152
+multi-hop/False          1736   87.10%   85.54%  -1.56     11     38  2.19%  0.000142
+conjunction              4317   95.95%   95.95%  +0.00      0      0  0.00%         1
+conjunction/True         1916   97.13%   97.13%  +0.00      0      0  0.00%         1
+conjunction/False        2401   95.00%   95.00%  +0.00      0      0  0.00%         1
+existence                 930   96.77%   96.77%  +0.00      0      0  0.00%         1
+existence/True            483   96.89%   96.89%  +0.00      0      0  0.00%         1
+existence/False           447   96.64%   96.64%  +0.00      0      0  0.00%         1
+negation                 1917   91.29%   91.29%  +0.00      0      0  0.00%         1
+negation/True             909   90.54%   90.54%  +0.00      0      0  0.00%         1
+negation/False           1008   91.96%   91.96%  +0.00      0      0  0.00%         1
+[Sun Nov 15 01:24:21 PM UTC 2026] p1_gold_all_dev: GPU free 2453 MiB
+accuracy 93.6605% (12425/13266) in 103s
+  one-hop      94.3463%  (n=2547)
+  multi-hop    91.9269%  (n=3555)
+  conjunction  95.7841%  (n=4317)
+  existence    96.7742%  (n=930)
+  negation     89.6714%  (n=1917)
+group                       n     base      new   delta  +flip  -flip    NFR McNemar p
+overall                 13266   90.06%   93.66%  +3.60    614    137  1.03%  7.11e-73
+one-hop                  2547   94.46%   94.35%  -0.12      5      8  0.31%     0.581
+one-hop/True             1299   98.08%   98.38%  +0.31      5      1  0.08%     0.219
+one-hop/False            1248   90.71%   90.14%  -0.56      0      7  0.56%    0.0156
+multi-hop                3555   77.36%   91.93% +14.57    564     46  1.29% 2.18e-114
+multi-hop/True           1819   68.06%   98.02% +29.96    553      8  0.44% 6.22e-152
+multi-hop/False          1736   87.10%   85.54%  -1.56     11     38  2.19%  0.000142
+conjunction              4317   95.95%   95.78%  -0.16     19     26  0.60%     0.371
+conjunction/True         1916   97.13%   96.82%  -0.31     17     23  1.20%      0.43
+conjunction/False        2401   95.00%   94.96%  -0.04      2      3  0.12%         1
+existence                 930   96.77%   96.77%  +0.00      0      0  0.00%         1
+existence/True            483   96.89%   96.89%  +0.00      0      0  0.00%         1
+existence/False           447   96.64%   96.64%  +0.00      0      0  0.00%         1
+negation                 1917   91.29%   89.67%  -1.62     26     57  2.97%  0.000878
+negation/True             909   90.54%   84.49%  -6.05      1     56  6.16%  8.05e-16
+negation/False           1008   91.96%   94.35%  +2.38     25      1  0.10%  8.05e-07
+[Sun Nov 15 01:26:13 PM UTC 2026] p1_bridge_all_dev: GPU free 2453 MiB
+accuracy 81.8634% (10860/13266) in 104s
+  one-hop      80.1728%  (n=2547)
+  multi-hop    82.5035%  (n=3555)
+  conjunction  78.4109%  (n=4317)
+  existence    96.7742%  (n=930)
+  negation     83.4637%  (n=1917)
+group                       n     base      new   delta  +flip  -flip    NFR McNemar p
+overall                 13266   90.06%   81.86%  -8.20    673   1761 13.27% 2.13e-111
+one-hop                  2547   94.46%   80.17% -14.29      0    364 14.29% 5.32e-110
+one-hop/True             1299   98.08%   97.92%  -0.15      0      2  0.15%       0.5
+one-hop/False            1248   90.71%   61.70% -29.01      0    362 29.01% 2.13e-109
+multi-hop                3555   77.36%   82.50%  +5.15    561    378 10.63%  2.56e-09
+multi-hop/True           1819   68.06%   97.36% +29.30    549     16  0.88% 7.09e-140
+multi-hop/False          1736   87.10%   66.94% -20.16     12    362 20.85%  7.03e-91
+conjunction              4317   95.95%   78.41% -17.54     49    806 18.67% 1.66e-177
+conjunction/True         1916   97.13%   96.56%  -0.57     35     46  2.40%     0.266
+conjunction/False        2401   95.00%   63.93% -31.07     14    760 31.65% 5.79e-204
+existence                 930   96.77%   96.77%  +0.00      0      0  0.00%         1
+existence/True            483   96.89%   96.89%  +0.00      0      0  0.00%         1
+existence/False           447   96.64%   96.64%  +0.00      0      0  0.00%         1
+negation                 1917   91.29%   83.46%  -7.82     63    213 11.11%  3.24e-20
+negation/True             909   90.54%   68.32% -22.22      5    207 22.77%  1.06e-54
+negation/False           1008   91.96%   97.12%  +5.16     58      6  0.60%  9.03e-12
+[Sun Nov 15 01:28:06 PM UTC 2026] GPU PART DONE

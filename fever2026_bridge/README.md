@@ -18,6 +18,8 @@ giữ đúng định dạng upstream (`DataFrame` cột `walked: {connected, wal
 
 Unit test (không cần torch): `python -m unittest test_bridge -v`.
 
+**Lưu ý về cache (đã gặp lỗi trên GPU-03):** nếu `--cache-dir` trỏ tới `runnable/cache` của upstream thì chỉ có trọng số model, không có `vocab.txt`. Khi đó tokenizer phải lấy từ cache mặc định, tức là để trống `--tokenizer-cache-dir`. Nếu tokenizer rỗng, `fever_predict.py` sẽ tự báo lỗi, không chạy ra kết quả sai. Kết quả chạy ngày 15/11 nằm trong [báo cáo 15/11](../ý%20tưởng%20+%20thực%20nghiệm/báo%20cáo%2015_11%20-%20FEVER%20vs%20V4%20và%20thí%20nghiệm%20bridge.md).
+
 ## Triển khai: dồn P0/P1 về máy R3/V4 (có KG + dự đoán V4)
 
 Máy FEVER chỉ cần gửi **checkpoint** đi. Subgraph one-hop của FEVER đã có sẵn ở máy local
@@ -99,3 +101,16 @@ P1 là **cận dưới** của lợi ích; `--groups` dùng nhãn loại claim n
 
 Gửi về local các file nhỏ: `out/p0_report_dev/report.md`, `out/*/metrics.json`, `out/p1_*/flips.json`,
 `out/*.stats.json`, `out/gold_bridges_dev.pkl.summary.json`. **Không** chạy test với file injected.
+
+## P2: train lại với bridge (`run_p2.sh`)
+
+Fine-tune **từ `bert-base-uncased` pretrained**, giống hệt baseline 92,6%: batch 4, LR 5e-6, tối đa 10 epoch, giữ checkpoint có dev accuracy cao nhất, dừng sớm sau 3 epoch dev không tăng. Chỉ khác input: one-hop + tối đa `MAX_PATHS` bridge tự tìm cho mọi claim, áp dụng cùng một cách cho train, dev và test. Code upstream được chép sang `~/duyanh_bridge/p2_$VARIANT/runnable`, nên checkpoint baseline không bị ghi đè.
+
+```bash
+cd ~/duyanh_bridge && cp code/run_p2.sh . && chmod +x run_p2.sh
+./run_p2.sh check                                   # chỉ đọc: file, RAM, VRAM, ổ đĩa
+nohup ./run_p2.sh all > logs/p2_all.log 2>&1 &      # bridges -> inputs -> train -> eval
+VARIANT=bridge3 MAX_PATHS=3 nohup ./run_p2.sh all > logs/p2_bridge3.log 2>&1 &   # biến thể khác
+```
+
+Script tự dừng nếu RAM < 16 GB (lúc nạp KG) hoặc VRAM < 8 GB (lúc train), và không đụng tới job khác. Đường dẫn mặc định theo GPU-03; máy khác thì đặt lại `RUNNABLE`, `PY`, `FACTKG_DIR`, `SUBG_DIR`, `KG`. `run_stuff.py` tự in thêm điểm test, nhưng chỉ chọn biến thể theo dev.

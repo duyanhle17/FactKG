@@ -48,7 +48,8 @@ def main():
     ap.add_argument("--checkpoint", required=True, help="state dict saved by upstream run_stuff.py")
     ap.add_argument("--output-dir", required=True)
     ap.add_argument("--model-name", default="bert-base-uncased")
-    ap.add_argument("--cache-dir", default=None, help="HF cache dir (upstream used ./cache)")
+    ap.add_argument("--cache-dir", default=None, help="HF cache dir for model weights (upstream used ./cache)")
+    ap.add_argument("--tokenizer-cache-dir", default=None, help="HF cache dir for the tokenizer (default HF cache)")
     ap.add_argument("--batch-size", type=int, default=32)
     ap.add_argument("--max-length", type=int, default=512)
     ap.add_argument("--limit", type=int, default=None, help="smoke test on first N claims")
@@ -65,7 +66,11 @@ def main():
     texts = [build_input(c, evidence_of(w)) for c, w in zip(claims, walked)]
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    tok = AutoTokenizer.from_pretrained(args.model_name, cache_dir=args.cache_dir)
+    # Upstream loads the tokenizer from the default HF cache (weights may live in ./cache).
+    tok = AutoTokenizer.from_pretrained(args.model_name, cache_dir=args.tokenizer_cache_dir)
+    if len(tok) < 1000 or tok.unk_token_id in tok("knowledge graph")["input_ids"]:
+        raise RuntimeError(f"Broken tokenizer (vocab size {len(tok)}); set --tokenizer-cache-dir "
+                           "to a cache that contains vocab.txt")
     model = AutoModelForSequenceClassification.from_pretrained(
         args.model_name, num_labels=2, cache_dir=args.cache_dir)
     state = torch.load(args.checkpoint, map_location="cpu")

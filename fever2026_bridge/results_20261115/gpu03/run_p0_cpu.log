@@ -1,0 +1,34 @@
+[Sun Nov 15 01:01:10 PM UTC 2026] step10 bridges dev
+loading KG ...
+KG loaded: 9913189 entities in 87s
+claims 0-999 done in 5s
+claims 1000-1999 done in 40s
+claims 2000-2999 done in 28s
+claims 3000-3999 done in 61s
+claims 4000-4999 done in 21s
+claims 5000-5999 done in 25s
+claims 6000-6999 done in 13s
+claims 7000-7999 done in 27s
+claims 8000-8999 done in 40s
+claims 9000-9999 done in 45s
+claims 10000-10999 done in 14s
+claims 11000-11999 done in 25s
+claims 12000-12999 done in 20s
+claims 13000-13265 done in 2s
+all shards done; rerun with --merge OUT.pkl
+[Sun Nov 15 01:08:49 PM UTC 2026] step12 merge
+merged 14 shards, 13266 claims -> /home/namnx/duyanh_bridge/out/bridges_dev.pkl
+[Sun Nov 15 01:08:52 PM UTC 2026] step11 gold bridges dev
+KG loaded in 76s
+2000/13266
+4000/13266
+6000/13266
+8000/13266
+10000/13266
+12000/13266
+wrote /home/namnx/duyanh_bridge/out/gold_bridges_dev.pkl
+[Sun Nov 15 01:10:39 PM UTC 2026] P1 inputs
+{'conjunction/claims_injected': 0, 'conjunction/paths_injected': 0, 'existence/claims_injected': 0, 'existence/paths_injected': 0, 'multi-hop/claims_injected': 2324, 'multi-hop/paths_injected': 4579, 'negation/claims_injected': 0, 'negation/paths_injected': 0, 'one-hop/claims_injected': 0, 'one-hop/paths_injected': 0}
+{'conjunction/claims_injected': 1046, 'conjunction/paths_injected': 1566, 'existence/claims_injected': 0, 'existence/paths_injected': 0, 'multi-hop/claims_injected': 2324, 'multi-hop/paths_injected': 4579, 'negation/claims_injected': 329, 'negation/paths_injected': 401, 'one-hop/claims_injected': 233, 'one-hop/paths_injected': 233}
+{'conjunction/claims_injected': 3854, 'conjunction/paths_injected': 13805, 'existence/claims_injected': 0, 'existence/paths_injected': 0, 'multi-hop/claims_injected': 2656, 'multi-hop/paths_injected': 8457, 'negation/claims_injected': 703, 'negation/paths_injected': 2255, 'one-hop/claims_injected': 444, 'one-hop/paths_injected': 1405}
+[Sun Nov 15 01:10:50 PM UTC 2026] CPU PART DONE

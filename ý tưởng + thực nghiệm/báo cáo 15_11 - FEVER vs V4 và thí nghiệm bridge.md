@@ -7,9 +7,63 @@
 
 1. **Code mới tái lập chính xác model FEVER 10 epoch:** test đạt **92,6004%** (8.372/9.041), dev đạt **90,0648%**. Kết quả khớp trên cả GPU-01 lẫn GPU-03.
 2. **FEVER và V4 bổ sung cho nhau ở multi-hop.** Trên test, hai model có accuracy gần bằng nhau (80,7% và 81,2%) nhưng sai ở những câu khác nhau. Nếu luôn chọn đúng model ("oracle"), multi-hop đạt **94,0%**.
-3. **Giả thuyết H1 (BERT thiếu evidence) được xác nhận.** Chỉ cần chèn bridge vàng vào input, không train lại, multi-hop dev tăng từ **77,36% lên 91,93% (+14,57 điểm)**. Riêng multi-hop True tăng từ 68,06% lên 98,02%.
-4. **Giả thuyết H2 (bridge giả gây hại) cũng được xác nhận, và còn nặng hơn dự kiến.** Chèn bridge tự tìm vào mọi claim khiến overall dev giảm từ **90,06% xuống 81,86%**. Nguyên nhân: checkpoint hiện tại đã học quy tắc tắt "có đường nối giữa các entity thì True". Ví dụ one-hop False giảm từ 90,7% xuống 61,7%, conjunction False từ 95,0% xuống 63,9%.
+3. **Giả thuyết H1 (BERT thiếu evidence) được xác nhận.** Lỗi multi-hop chủ yếu do input **không chứa đường nối liền giữa các entity**, chứ không phải do BERT không biết suy luận 2 bước. Chỉ cần chèn đường nối vào input, không train lại, multi-hop True dev tăng từ **68,06% lên 97–98%** (K2).
+4. **Giả thuyết H2 (bridge giả gây hại) được xác nhận, và còn nặng hơn dự kiến.** Checkpoint hiện tại đã học quy tắc tắt "có đường nối giữa các entity thì True". Chèn bridge tự tìm vào mọi claim khiến overall dev giảm từ **90,06% xuống 81,86%**; **100%** số câu bị làm sai là câu được chèn bridge, và mọi claim False trong số đó đều bị đổi thành True (K3).
 5. **⇒ Hướng SBE đúng, nhưng bắt buộc phải train verifier trên input có bridge**, kể cả bridge giả gắn với claim False, để model học cách xét relation thay vì chỉ xét "có nối hay không". Các gate đơn giản không train lại chỉ thêm tối đa khoảng +0,4 điểm (mục 7).
+
+## 0. Các kết luận chính: giả thuyết → cách chứng minh → kết quả
+
+Mỗi kết luận dưới đây dựa trên một **phép can thiệp có kiểm soát**: giữ nguyên checkpoint, dữ liệu dev và cách chấm điểm, chỉ thay đổi **một** yếu tố trong input, rồi so từng câu với baseline (McNemar, đếm số câu đổi từ đúng sang sai và ngược lại). Các bảng chi tiết nằm ở mục 2–7.
+
+### K1. BERT one-hop thường không có trong input một đường nối liền giữa các entity của claim multi-hop
+
+| Bằng chứng | Kết quả (dev) | Nguồn |
+| --- | --- | --- |
+| Có cạnh trực tiếp giữa các entity của claim không? | 89,1% claim multi-hop **không có** cạnh trực tiếp nào (nhóm one-hop: 38,2%) | [báo cáo 11/11](báo%20cáo%2011_11.md), mục 3.1 |
+| Node trung gian có xuất hiện từ cả hai phía không? | Chỉ 27,5% claim multi-hop, và đây là **cận trên** vì tính trước khi cắt 512 token | 11/11, mục 3.1 |
+| Input bị cắt ở 512 token bao nhiêu? | 66,8% input multi-hop vượt 512 token. Tính theo path: chỉ **34,9%** tổng số path multi-hop nằm trong phần BERT đọc được. Tính theo claim: trung vị 64,5%, và 1/4 số claim chỉ giữ được ≤ 30,9% số path | mục 3 |
+| Bridge có thật trong KG không? | Có: 95,9% claim multi-hop True có đường 2 hop giữa các entity, 97,5% có bridge đúng relation vàng | mục 4 |
+
+**Kết luận:** KG *có* bằng chứng, nhưng input one-hop không trình bày nó dưới dạng một đường nối liền. Lưu ý quan trọng: **riêng việc bị cắt ở 512 token không giải thích được lỗi multi-hop.** Accuracy multi-hop gần như bằng nhau giữa input bị cắt và không bị cắt (77,5% so với 77,1%, mục 3). Thứ còn thiếu là *đường nối*, không chỉ là độ dài.
+
+### K2. Thiếu đường nối là nguyên nhân chính của lỗi multi-hop True
+
+- **Cách chứng minh:** giữ nguyên checkpoint 92,6% và mọi phần khác của input; chỉ đặt thêm path nối liền lên **đầu** input, để chắc chắn nằm trong 512 token. Thử hai nguồn path: (a) bridge vàng dựng theo relation trong Evidence; (b) bridge **tự tìm** trong KG, không dùng bất kỳ thông tin vàng nào.
+- **Kết quả trên multi-hop True** (1.819 claim, baseline đúng 68,06%; tức 581 câu sai):
+
+| Nguồn path chèn vào | Accuracy sau khi chèn | Số câu được sửa / bị làm sai | McNemar |
+| --- | ---: | ---: | --- |
+| (a) bridge vàng | **98,02%** | 553 / 8 | p ≈ 6e-152 |
+| (b) bridge tự tìm, không dùng thông tin vàng | **97,36%** | 549 / 16 | p ≈ 7e-140 |
+
+- **Kết luận:** khi được thấy đường nối, *chính model cũ, không train lại*, sửa được khoảng **95%** số lỗi multi-hop True. Nghĩa là BERT **biết** dùng đường nối 2 bước; nó chỉ thiếu đường nối trong input. Kết luận này không phụ thuộc vào thông tin vàng, vì (b) cho kết quả gần như bằng (a).
+- **Giới hạn:** (a) là cận trên vì bridge vàng có thể làm lộ nhãn (có ở 1.812/1.819 claim True nhưng chỉ 543/1.736 claim False). Hệ quả đối xứng với claim False được nêu ở K3.
+
+### K3. Model đã học quy tắc tắt "có đường nối giữa các entity ⇒ True"
+
+- **Cách chứng minh:**
+  1. Quan sát: ở one-hop và conjunction, việc có cạnh trực tiếp gần như quyết định nhãn. ≥ 99,3% claim True có cạnh trực tiếp, trong khi 77–84% claim one-hop False không có (11/11, mục 3.2).
+  2. Can thiệp: chèn bridge tự tìm vào **mọi** claim, kể cả claim False, rồi xem câu nào bị đổi dự đoán và đổi theo hướng nào.
+- **Kết quả (dev):**
+
+| Nhóm / nhãn | Tỷ lệ claim được chèn bridge | Số câu bị làm sai | Trong số đó: có bridge được chèn | Trong số đó: bị đổi thành True |
+| --- | ---: | ---: | ---: | ---: |
+| One-hop / False | 35,3% | 362 (82% số claim được chèn) | **100%** | **100%** |
+| Conjunction / False | 84,1% | 760 | **100%** | **100%** |
+| Multi-hop / False | 53,0% | 362 | **100%** | **100%** |
+| Negation / True ("A *không* liên quan B") | 35,6% | 207 | **100%** | — (bị đổi thành False) |
+
+- **Kết luận:** mọi câu bị làm sai đều là câu được chèn bridge, và lỗi luôn đi theo cùng một hướng: "có đường nối ⇒ True" (với negation True: "có đường nối ⇒ claim phủ định là sai"). Model **không xét relation có khớp với claim hay không**. Đây là lý do "tăng multi-hop thì các nhóm khác giảm", và lần đầu được đo trực tiếp. Nó cũng khớp với hiện tượng walk5 của R3 làm Conjunction False giảm ([báo cáo 14/10](báo%20cáo%2014_10.md)).
+
+### K4. Evidence nhiều bước có giá trị bổ sung cho FEVER
+
+- **Cách chứng minh:** ghép từng câu dự đoán của FEVER và R3/V4 trên cùng 9.041 claim test (nhãn khớp 100%), đếm câu chỉ một trong hai model đúng.
+- **Kết quả:** multi-hop: 241 câu chỉ FEVER đúng, 250 câu chỉ V4 đúng; oracle **94,0%**, trong khi từng model chỉ đạt khoảng 81% (mục 2).
+- **Kết luận:** path nhiều bước của R3 sửa được những câu FEVER sai. Đây là bằng chứng độc lập với K2, vì nguồn path khác hẳn (relation/hop predictor thay vì bridge). Oracle chỉ là cận trên.
+
+### Hệ quả cho hướng nghiên cứu
+
+K2 cho thấy **có rất nhiều chỗ để cải thiện**: multi-hop True có thể lên khoảng 97%. K3 cho thấy **tại sao không thể chỉ chèn bridge vào input**. Bước tiếp theo vì vậy là **train lại verifier trên input có bridge (P2)**, để model gặp cả bridge đúng lẫn bridge giả ngay khi học.
 
 ## 1. Thiết lập
 
@@ -55,7 +109,21 @@
 | Existence | 250 | 8,5% | 94,8% |
 | Negation | 905 | 51,9% | 40,8% |
 
-Path `connected` luôn nằm trong phần được đọc vì đứng đầu input; phần bị cắt là các triple `walkable` ở cuối. Ước lượng ký tự/4 dùng trước đây (41% multi-hop bị cắt) **thấp hơn thực tế rất nhiều**, nên đã bỏ.
+Cột cuối tính **theo path**: tổng số path nằm trong 512 token chia cho tổng số path của cả nhóm. Tính **theo từng claim**, multi-hop có trung vị 64,5%, phân vị 25% là 30,9%, phân vị 75% là 100%. Path `connected` luôn nằm trong phần được đọc vì đứng đầu input; phần bị cắt là các triple `walkable` ở cuối. Ước lượng ký tự/4 dùng trước đây (41% multi-hop bị cắt) **thấp hơn thực tế rất nhiều**, nên đã bỏ.
+
+**Bị cắt có làm FEVER sai nhiều hơn không?** (dev, accuracy FEVER theo độ dài input)
+
+| Nhóm | ≤ 512 token: n / accuracy | > 512 token: n / accuracy | % path còn đọc được khi bị cắt |
+| --- | --- | --- | ---: |
+| One-hop | 985 / 93,6% | 1.562 / 95,0% | 52,4% |
+| **Multi-hop** | 1.179 / **77,1%** | 2.376 / **77,5%** | 45,6% |
+| Conjunction | 536 / 91,2% | 3.781 / 96,6% | 39,1% |
+| Existence | 851 / 96,7% | 79 / 97,5% | 80,3% |
+| **Negation** | 922 / **94,8%** | 995 / **88,0%** | 47,3% |
+
+- **Multi-hop:** accuracy gần như không đổi theo độ dài input, kể cả khi tách theo nhãn (True: 66,0% và 68,8%; False: 84,5% và 88,8%). Vì vậy việc cắt ở 512 token **không** phải nguyên nhân chính của lỗi multi-hop. Nguyên nhân là input không có đường nối liền (K1, K2): kể cả khi đọc được toàn bộ input one-hop, đường nối vẫn không có trong đó.
+- **Negation** là nhóm duy nhất bị cắt làm giảm rõ: −6,8 điểm, và claim True giảm từ 94,4% xuống 85,0%. Hợp lý, vì muốn kết luận "A *không* liên quan B" thì phải thấy được phần lớn các cạnh quanh A.
+- Đây là **so sánh quan sát**, không phải can thiệp: input dài thường đi kèm entity có nhiều cạnh, nên không suy ra quan hệ nhân quả chặt chẽ. Muốn kiểm chứng nhân quả cần giữ claim cố định và chỉ thay đổi độ dài cắt, ví dụ thử thêm encoder 1.024 token ở P2/P3.
 
 ## 4. Bridge có trong KG không? Tách theo nhãn (dev)
 

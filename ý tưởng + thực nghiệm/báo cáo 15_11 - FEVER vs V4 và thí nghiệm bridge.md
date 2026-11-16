@@ -1,7 +1,61 @@
-# Báo cáo 15/11/2026: so sánh FEVER BERT với R3/V4 và thí nghiệm bridge cho multi-hop
+# Báo cáo 15–17/11/2026: FEVER BERT với R3/V4, thí nghiệm bridge và kết quả P2
 
-> Đây là phần thực nghiệm P0/P1 của kế hoạch trong [báo cáo 11/11](báo%20cáo%2011_11.md), mục "Brainstorm".
-> Mọi kết quả dùng để **chọn hướng** đều tính trên **dev** (13.266 claim). Test chỉ được dùng để kiểm tra tái lập và mô tả, không dùng để chọn cấu hình.
+> Phần thực nghiệm P0, P1, P2 của kế hoạch trong [báo cáo 11/11](báo%20cáo%2011_11.md), mục "Brainstorm".
+>
+> **Dev và test dùng vào việc gì:**
+> - **Dev** (13.266 claim) dùng để **chọn**: chọn epoch tốt nhất khi train, và chọn hướng thí nghiệm (P0, P1).
+> - **Test** (9.041 claim) là **điểm báo cáo**: chỉ chạy một lần cho cấu hình đã khóa từ trước. Con số 92,60% của FEVER trước đây cũng là điểm test.
+>
+> Mọi so sánh với paper khác đều dùng **test**.
+
+## Bảng điểm cuối (test, 9.041 claim)
+
+**Cấu hình P2 (`bridge5`):** BERT-base fine-tune từ đầu, giống hệt baseline, gồm batch 4, LR 5e-6, tối đa 10 epoch và chọn epoch theo dev. Khác biệt duy nhất nằm ở input: ngoài one-hop, mỗi claim có thêm tối đa 5 đường nối 2–3 hop giữa các entity, tự tìm trong KG và không dùng evidence vàng. Cấu hình được khóa trước khi chạy test. Epoch được chọn là epoch 10, dev 94,92%.
+
+**Theo 5 nhóm** (taxonomy dùng trong Opsahl và TrustFV):
+
+| Nhóm | n | FEVER baseline (của mình) | **P2 bridge5** | Δ | Opsahl 2024 | TrustFV 2026 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| One-hop | 1.914 | 95,51 | **97,34** | +1,83 | 97,40 | 89,13 |
+| **Multi-hop** | 1.874 | 80,68 | **93,60** | **+12,91** | 80,32 | 88,14 |
+| Conjunction (multi-claim) | 3.069 | 97,13 | 96,58 | −0,55 | 97,51 | 87,12 |
+| Existence | 870 | 97,36 | 97,24 | −0,11 | 97,31 | 96,00 |
+| Negation | 1.314 | 91,63 | 90,79 | −0,84 | 92,54 | 88,63 |
+| **Overall** | **9.041** | **92,60** (8.372 câu đúng) | **95,34** (8.620) | **+2,74** | 93,49 | 90,07 |
+
+**Theo 6 tag** (cách chia của FEVER 2026, do `run_stuff.py` in ra; một claim có thể mang nhiều tag):
+
+| Tag | FEVER baseline | **P2 bridge5** | Δ |
+| --- | ---: | ---: | ---: |
+| single hop | 96,28 | 96,25 | −0,03 |
+| **multi hop** | 80,22 | **92,28** | **+12,06** |
+| multi claim | 96,42 | 95,26 | −1,16 |
+| existence | 97,61 | 97,38 | −0,23 |
+| negation | 91,63 | 90,79 | −0,84 |
+| substitution | 92,57 | 95,25 | +2,68 |
+| **Overall** | **92,60** | **95,34** | **+2,74** |
+
+Bài báo FEVER 2026 báo cáo overall 92,68%, multi-hop 80,08%.
+
+**Đọc bảng:**
+
+- **Overall 95,34%**: cao hơn mốc tốt nhất đã biết là Opsahl (93,49%) **1,85 điểm**, và cao hơn baseline của mình **2,74 điểm**. So từng câu với baseline: 476 câu từ sai thành đúng, 228 câu từ đúng thành sai, McNemar p = 5e-21.
+- **Multi-hop 93,60%**: nhóm khó nhất trước đây (mọi encoder đều dừng ở khoảng 80%) giờ ngang các nhóm khác. Con số này cao hơn TrustFV (88,14%, dùng LLM 8B, 10–39 s/claim) **5,5 điểm**, trong khi P2 suy luận mất **7 ms/claim**.
+- **Các nhóm còn lại gần như giữ nguyên**: one-hop tăng; conjunction, existence và negation giảm dưới 1 điểm, và **các mức giảm theo nhóm đều không có ý nghĩa thống kê** (p ≥ 0,2). Chi tiết theo nhãn và những điểm cần thận trọng nằm ở mục 8.
+
+**Các chỉ số trong báo cáo:**
+
+| Chỉ số | Ý nghĩa |
+| --- | --- |
+| Accuracy dev / test | Tỷ lệ đoán đúng trên dev (dùng để chọn epoch và chọn hướng) / trên test (điểm báo cáo, so với paper khác) |
+| 5 nhóm và 6 tag | **5 nhóm** loại trừ nhau, mỗi claim thuộc đúng 1 nhóm theo thứ tự ưu tiên negation > one-hop (`num1`) > multi-hop > conjunction (`multi claim`) > existence; đây là cách chia của Opsahl và TrustFV. **6 tag** là cách chia của FEVER 2026: một claim có thể mang nhiều tag, nên số của hai cách chia khác nhau một chút |
+| Nhóm / True, Nhóm / False | Accuracy riêng trên các claim có nhãn đúng / sai. Cho biết model có thiên về một nhãn hay không |
+| Δ | Accuracy mới trừ accuracy baseline, đơn vị là điểm phần trăm |
+| +flip | Số câu baseline đoán **sai** mà model mới đoán **đúng** |
+| −flip | Số câu baseline đoán **đúng** mà model mới đoán **sai** (bị làm hỏng) |
+| NFR | Tỷ lệ câu bị làm hỏng: −flip chia cho số claim của nhóm. Càng thấp càng tốt; đo trực tiếp nỗi lo "tăng multi-hop thì nhóm khác giảm" |
+| McNemar p | Kiểm định trên từng cặp câu, xem chênh lệch +flip và −flip có thể do ngẫu nhiên không. p < 0,05 nghĩa là khác biệt có ý nghĩa; p lớn (ví dụ 0,2 hoặc 1) nghĩa là chưa phân biệt được với nhiễu |
+| best epoch / dev | Epoch có dev accuracy cao nhất; checkpoint của epoch đó được dùng để chạy test |
 
 ## Tóm tắt
 
@@ -9,7 +63,8 @@
 2. **FEVER và V4 bổ sung cho nhau ở multi-hop.** Trên test, hai model có accuracy gần bằng nhau (80,7% và 81,2%) nhưng sai ở những câu khác nhau. Nếu luôn chọn đúng model ("oracle"), multi-hop đạt **94,0%**.
 3. **Giả thuyết H1 (BERT thiếu evidence) được xác nhận.** Lỗi multi-hop chủ yếu do input **không chứa đường nối liền giữa các entity**, chứ không phải do BERT không biết suy luận 2 bước. Chỉ cần chèn đường nối vào input, không train lại, multi-hop True dev tăng từ **68,06% lên 97–98%** (K2).
 4. **Giả thuyết H2 (bridge giả gây hại) được xác nhận, và còn nặng hơn dự kiến.** Checkpoint hiện tại đã học quy tắc tắt "có đường nối giữa các entity thì True". Chèn bridge tự tìm vào mọi claim khiến overall dev giảm từ **90,06% xuống 81,86%**; **100%** số câu bị làm sai là câu được chèn bridge, và mọi claim False trong số đó đều bị đổi thành True (K3).
-5. **⇒ Hướng SBE đúng, nhưng bắt buộc phải train verifier trên input có bridge**, kể cả bridge giả gắn với claim False, để model học cách xét relation thay vì chỉ xét "có nối hay không". Các gate đơn giản không train lại chỉ thêm tối đa khoảng +0,4 điểm (mục 7).
+5. **⇒ Phải train verifier trên input có bridge**, kể cả bridge giả gắn với claim False, để model học cách xét relation thay vì chỉ xét "có nối hay không". Các gate đơn giản không train lại chỉ thêm tối đa khoảng +0,4 điểm (mục 7).
+6. **P2 (train lại với bridge) xác nhận điều này:** test **95,34%** (multi-hop **93,60%**), dev 94,92%. Quy tắc tắt của P1 biến mất: claim False có bridge giả giờ được đoán đúng (K5, mục 8).
 
 ## 0. Các kết luận chính: giả thuyết → cách chứng minh → kết quả
 
@@ -61,9 +116,26 @@ Mỗi kết luận dưới đây dựa trên một **phép can thiệp có kiể
 - **Kết quả:** multi-hop: 241 câu chỉ FEVER đúng, 250 câu chỉ V4 đúng; oracle **94,0%**, trong khi từng model chỉ đạt khoảng 81% (mục 2).
 - **Kết luận:** path nhiều bước của R3 sửa được những câu FEVER sai. Đây là bằng chứng độc lập với K2, vì nguồn path khác hẳn (relation/hop predictor thay vì bridge). Oracle chỉ là cận trên.
 
+### K5. Train trên input có bridge vừa giải quyết multi-hop vừa loại bỏ quy tắc tắt
+
+- **Cách chứng minh:** train lại BERT từ pretrained với đúng protocol của baseline. Chỉ thay input: one-hop cộng bridge tự tìm, áp dụng cho **mọi** claim ở cả train, dev lẫn test, nên model gặp cả bridge giả gắn với claim False. So từng câu với baseline (dev, test) và với P1(c), là lần chèn cùng loại bridge nhưng không train lại.
+- **Kết quả:**
+
+| Nhóm / nhãn (dev) | Baseline | P1(c): chèn bridge, không train | **P2: train với bridge** |
+| --- | ---: | ---: | ---: |
+| Multi-hop / True | 68,06 | 97,36 | **92,80** |
+| Multi-hop / False | 87,10 | 66,94 | **95,05** |
+| One-hop / False | 90,71 | 61,70 | **92,31** |
+| Conjunction / False | 95,00 | 63,93 | **96,83** |
+| Negation / True | 90,54 | 68,32 | **89,00** |
+| **Overall dev** | 90,06 | 81,86 | **94,92** |
+| **Overall test** | 92,60 | — | **95,34** |
+
+- **Kết luận:** sau khi train, model không còn hiểu "có đường nối ⇒ True". Claim False có bridge giả vẫn được đoán đúng, thậm chí cao hơn baseline, nên model đã học cách **xét relation trên đường nối**. Multi-hop True thấp hơn P1(c) (92,8 so với 97,4) vì model không còn đoán True chỉ dựa vào việc có đường nối. Đổi lại, multi-hop False tăng từ 66,9 lên 95,1.
+
 ### Hệ quả cho hướng nghiên cứu
 
-K2 cho thấy **có rất nhiều chỗ để cải thiện**: multi-hop True có thể lên khoảng 97%. K3 cho thấy **tại sao không thể chỉ chèn bridge vào input**. Bước tiếp theo vì vậy là **train lại verifier trên input có bridge (P2)**, để model gặp cả bridge đúng lẫn bridge giả ngay khi học.
+K2 cho thấy có nhiều chỗ để cải thiện. K3 giải thích vì sao không thể chỉ chèn bridge vào input. K5 cho thấy chỉ cần train trên cùng phân phối là đủ để vượt SOTA, chưa cần gate, marker hay near-miss. Câu hỏi tiếp theo vì vậy không còn là "có tăng được không", mà là: kết quả có ổn định qua nhiều seed không, thành phần nào tạo ra phần tăng, và có giữ được negation không (mục 8).
 
 ## 1. Thiết lập
 
@@ -205,18 +277,65 @@ Thử trên dev, ghép dự đoán của baseline và của biến thể (c), d�
 - Ngay cả oracle theo loại claim cũng chỉ đưa multi-hop lên 82,5%, vì checkpoint chưa phân biệt được bridge đúng với bridge giả ngay trong nhóm multi-hop (multi-hop False giảm còn 66,9%).
 - ⇒ Muốn tiến xa hơn, verifier phải **học** từ input có bridge.
 
-## 8. Bước tiếp theo đề xuất: P2, train lại với bridge
+## 8. P2: train lại BERT trên input có bridge (16–17/11, GPU-03)
 
-| Bước | Nội dung | Lý do |
+### 8.1 Thiết lập
+
+| Thành phần | Chi tiết |
+| --- | --- |
+| Model | `bert-base-uncased` **pretrained**, không tiếp tục từ checkpoint 92,6% |
+| Protocol | Giống hệt baseline: code upstream `run_stuff.py`, batch 4, LR 5e-6, tối đa 10 epoch, chọn checkpoint theo dev, patience 3. Code upstream được chép sang thư mục riêng, nên checkpoint baseline không bị ghi đè. Bản chép chỉ thêm một bước lưu checkpoint tốt nhất xuống đĩa ở mỗi epoch ([`patch_train_checkpoint.py`](../fever2026_bridge/patch_train_checkpoint.py)); cách chọn và dừng sớm không đổi |
+| Input | Subgraph one-hop của baseline, cộng tối đa **5 bridge** cho mỗi claim. Bridge được đặt **lên đầu** input, chỉ tìm cho những cặp entity chưa có cạnh trực tiếp, và xếp hạng theo độ trùng từ giữa relation và claim. Mọi nhóm, mọi nhãn và cả 3 split đều được xử lý giống nhau; **không dùng Evidence vàng** |
+| Số claim được chèn bridge | Train: 50.767/86.367 (conjunction 26.706; multi-hop 16.893; negation 4.221; one-hop 2.947). Dev: 7.657. Test: 4.828 (multi-hop 1.392/1.874) |
+| Chi phí | Tìm bridge: CPU, trung bình khoảng 40 ms/claim, cần KG trong RAM (11,8 GB). Train: 10 epoch trong khoảng 7 giờ (28–46 phút mỗi epoch tùy tải GPU dùng chung), khoảng 7–8 GB VRAM. Suy luận: **7,05 ms/claim** |
+| Toàn bộ quy trình | [`run_p2.sh`](../fever2026_bridge/run_p2.sh) `all` (`check → bridges → inputs → train → eval`). Riêng test theo nhóm được chạy thêm bằng `fever_predict.py` trên cùng checkpoint, ra đúng 95,3434% như `run_stuff.py` |
+
+### 8.2 Đường học trên dev
+
+| Epoch | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Baseline (one-hop) | 51,56 | 59,27 | 75,03 | 80,19 | 84,36 | 86,87 | 88,63 | 89,30 | 89,83 | 90,06 |
+| **P2 bridge5** | 51,56 | 59,90 | 68,25 | 79,62 | 85,09 | 89,31 | 92,64 | 94,04 | 94,61 | **94,92** |
+| P2 dev loss | 0,704 | 0,669 | 0,612 | 0,465 | 0,349 | 0,275 | 0,197 | 0,160 | 0,156 | 0,156 |
+
+- P2 vượt baseline từ epoch 5, và ở epoch 7 đã bằng điểm cuối của baseline.
+- Epoch 10 vẫn là epoch tốt nhất, nhưng dev loss đã đứng yên từ epoch 9 (0,156), nên phần tăng thêm nếu train lâu hơn có lẽ nhỏ. Dev loss của baseline tăng lại từ epoch 8 (0,271 → 0,311), còn P2 thì không.
+
+### 8.3 So từng câu với baseline, theo nhóm và nhãn
+
+| Nhóm / nhãn | Dev: base → P2 | Dev +flip / −flip | **Test: base → P2** | Test +flip / −flip | Test McNemar p |
+| --- | --- | ---: | --- | ---: | ---: |
+| One-hop / True | 98,08 → 98,92 | 16 / 5 | 97,64 → 99,06 | 20 / 5 | 0,004 |
+| One-hop / False | 90,71 → 92,31 | 42 / 22 | 92,85 → 95,19 | 35 / 15 | 0,007 |
+| **Multi-hop / True** | 68,06 → **92,80** | 517 / 67 | 74,53 → **92,62** | 209 / 35 | 2e-31 |
+| **Multi-hop / False** | 87,10 → **95,05** | 169 / 31 | 87,17 → **94,63** | 88 / 20 | 2e-11 |
+| Conjunction / True | 97,13 → 97,96 | 50 / 34 | 98,45 → **95,43** | 17 / 58 | **2e-6** |
+| Conjunction / False | 95,00 → 96,83 | 78 / 34 | 96,08 → 97,49 | 52 / 28 | 0,010 |
+| Existence / True | 96,89 → 98,96 | 11 / 1 | 98,55 → 98,79 | 1 / 0 | 1 |
+| Existence / False | 96,64 → 95,97 | 3 / 6 | 96,27 → 95,83 | 4 / 6 | 0,75 |
+| Negation / True | 90,54 → 89,00 | 43 / 57 | 89,88 → 90,38 | 29 / 26 | 0,79 |
+| Negation / False | 91,96 → **89,19** | 29 / 57 | 93,11 → **91,14** | 21 / 35 | 0,08 |
+| **Overall** | 90,06 → **94,92** | 958 / 314 | 92,60 → **95,34** | 476 / 228 | 5e-21 |
+
+NFR (tỷ lệ câu đúng bị làm sai) toàn tập là 2,37% trên dev và 2,52% trên test, so với 13,27% của P1(c).
+
+### 8.4 Nhận xét và điểm cần thận trọng
+
+1. **Phần tăng đến chủ yếu từ multi-hop:** trên test, multi-hop ròng +242 câu, trong khi tổng ròng là +248. Cả nhãn True lẫn False đều tăng, nên đây không phải do model nghiêng hẳn về một nhãn.
+2. **Negation False giảm** ở cả dev (−2,78, p = 0,003) lẫn test (−1,97, p = 0,08). Giải thích khả dĩ: claim "A *không* liên quan B" có nhãn False khi A thật sự liên quan B. Đường nối nhiều bước được chèn vào làm nhiễu tín hiệu cạnh trực tiếp mà nhóm này cần. Đây là chỗ một gate theo loại claim (SBE) có thể giúp.
+3. **Conjunction True giảm 3,02 điểm trên test** (58 câu bị làm sai, p = 2e-6), nhưng **trên dev lại tăng** (+0,84). Dev và test không nhất quán ở điểm này nên cần phân tích lỗi trước khi kết luận. Lưu ý: kết quả này không được phép dùng để chỉnh cấu hình, vì sẽ thành chọn theo test.
+4. **Mới có 1 seed.** Phần tăng ở multi-hop (+12,9 điểm) và overall (+2,7 điểm) lớn hơn nhiều mức nhiễu seed thường gặp (dưới 1 điểm). Các chênh lệch nhỏ hơn 1 điểm (conjunction, existence, negation) thì chưa thể diễn giải.
+5. **Tính hợp lệ của điểm test:** cấu hình (bridge5, 10 epoch, chọn theo dev) được khóa trước khi chạy. Test được tính một lần ở cuối quá trình train, và lần chạy `fever_predict.py` sau đó chỉ tách cùng kết quả ấy theo nhóm. Bridge chỉ dựa vào entity của claim (cùng nguồn entity mà baseline dùng để dựng one-hop), KG và chữ trong claim; không dùng nhãn, không dùng Evidence vàng.
+
+### 8.5 Bước tiếp theo
+
+| Ưu tiên | Việc | Mục đích |
 | --- | --- | --- |
-| P2.0 | Chạy `bridge_retrieval.py` cho **train** (86.367 claim, ước lượng khoảng 45 phút CPU) và cho test. Không dùng Evidence vàng khi dựng input | Train và test phải có cùng phân phối evidence |
-| P2.1 | Train BERT với input one-hop + bridge tự tìm cho **mọi** claim, đánh dấu `[2HOP]`. So với baseline cùng số epoch | Cho model thấy bridge giả gắn với nhãn False, để học xét relation (H2) |
-| P2.2 | Ablation: có / không marker; có / không near-miss; số bridge tối đa 3/5/10; xếp bridge theo từ vựng hay ngẫu nhiên | Tách xem phần tăng đến từ thành phần nào |
-| P2.3 | Báo NFR theo từng nhóm và từng nhãn so với baseline; chọn cấu hình trên dev | Mục tiêu: multi-hop ≥ 85% với NFR các nhóm khác ≈ 0 |
-
-**Cách train:** fine-tune lại **từ `bert-base-uncased` pretrained**, không tiếp tục từ checkpoint 92,6%. Mọi thiết lập giữ như baseline: batch 4, LR 5e-6, tối đa 10 epoch, chọn checkpoint theo dev, dừng sớm sau 3 epoch dev không tăng. Như vậy khác biệt duy nhất so với baseline là input có thêm bridge. Có thể thêm một biến thể phụ rẻ hơn là fine-tune tiếp từ checkpoint 92,6% trong 1–3 epoch, nhưng kết quả của biến thể này bị lẫn với hiệu ứng "train lâu hơn", nên chỉ dùng tham khảo. Mọi bước đã gói trong [`run_p2.sh`](../fever2026_bridge/run_p2.sh) (`check → bridges → inputs → train → eval`).
-
-**Điều kiện tài nguyên:** train BERT-base ở batch 4 và 512 token cần khoảng 6–8 GB VRAM. Lần kiểm tra gần nhất, GPU-03 còn khoảng **2,4 GB** trống, GPU-01 khoảng **4 GB**. Có hai lựa chọn: chờ máy rảnh hơn, hoặc dùng bf16 + gradient checkpointing để train vừa khoảng 3–4 GB (cách này làm thay đổi protocol so với baseline, nên phải train lại cả baseline theo cùng cách).
+| 1 | Chạy lại P2 bridge5 với **2 seed nữa**, kèm 3 seed cho baseline | Báo cáo mean ± std; kiểm tra conjunction True và negation có giảm thật hay không |
+| 2 | Phân tích lỗi trên **dev**: các câu negation False và conjunction True bị làm sai | Tìm nguyên nhân trước khi thêm gate hoặc marker |
+| 3 | Ablation trên dev: số bridge tối đa 3/10; xếp hạng ngẫu nhiên thay cho theo độ trùng từ; marker `[2HOP]`; thêm near-miss; bỏ chèn cho negation (gate) | Tách xem phần tăng đến từ thành phần nào, và có giữ được negation không |
+| 4 | Encoder khác (DeBERTa-v3, ModernBERT) với cùng input | Chứng minh phần tăng không phụ thuộc BERT |
+| 5 | Phép đo độ trung thực: xóa hoặc tráo bridge lúc test rồi đo tỷ lệ đổi nhãn | Chứng minh model dùng bridge thật, không dựa vào tín hiệu giả (mục E của báo cáo 11/11) |
 
 ## 9. Artifact
 
@@ -226,5 +345,6 @@ Thử trên dev, ghép dự đoán của baseline và của biến thể (c), d�
 | Dự đoán FEVER test/dev, đo token (GPU-01) | `fever2026_bridge/results_gpu01/out/` |
 | Bridge, bridge vàng, dự đoán và flip của P1, log (GPU-03) | `fever2026_bridge/results_20261115/gpu03/` |
 | Báo cáo P0 trên dev; so sánh FEVER với V4 trên test | `fever2026_bridge/results_20261115/{p0_report_dev,test_fever_vs_v4_r3,test_fever_vs_v4_walk5}/` |
+| P2: dự đoán dev/test, flip, log train, thống kê input | `fever2026_bridge/results_20261117/gpu03/`. File `.pkl`/`.json` bị gitignore, chỉ có ở local |
 | Checkpoint R3/V4, dự đoán walk5/hybrid/dev (sao lưu từ GPU-01, nằm ngoài repo) | `C:\Duy Anh Le Code\FactKG_gpu01_backup\FactKG\` |
-| Trên GPU-03 | `~/duyanh_bridge/`: KG 1,5 GB, code, `out/`. Giữ lại để chạy P2 |
+| Trên GPU-03 | `~/duyanh_bridge/`: KG 1,5 GB, code, `out/` (bridge và input cho cả 3 split), checkpoint P2 tại `p2_bridge5/runnable/models/bert-base-uncased.pth` |

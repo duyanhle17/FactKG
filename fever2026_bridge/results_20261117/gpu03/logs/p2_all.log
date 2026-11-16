@@ -1,0 +1,251 @@
+  ok      /home/namnx/namnx/vault/cts_nambuw/runnable/.venv_fever_l40s/bin/python
+  ok      /home/namnx/duyanh_bridge/data/dbpedia_2015_undirected_light.pickle
+  ok      /home/namnx/namnx/vault/cts_nambuw/runnable/run_stuff.py
+  ok      /home/namnx/namnx/vault/cts_nambuw/runnable/cache
+  ok      /home/namnx/duyanh_bridge/out/p0_fever_dev/predictions.pkl
+  ok      /home/namnx/namnx/vault/cts_nambuw/runnable/data/factkg/factkg_train.pickle
+  ok      /home/namnx/namnx/vault/cts_nambuw/runnable/data/factkg/factkg_dev.pickle
+  ok      /home/namnx/namnx/vault/cts_nambuw/runnable/data/factkg/factkg_test.pickle
+  ok      /home/namnx/namnx/vault/cts_nambuw/runnable/data/subgraphs/subgraphs_one_hop_train.pkl
+  ok      /home/namnx/namnx/vault/cts_nambuw/runnable/data/subgraphs/subgraphs_one_hop_val.pkl
+  ok      /home/namnx/namnx/vault/cts_nambuw/runnable/data/subgraphs/subgraphs_one_hop_test.pkl
+  ok      /home/namnx/duyanh_bridge/code/bridge_retrieval.py
+  ok      /home/namnx/duyanh_bridge/code/build_injected.py
+  ok      /home/namnx/duyanh_bridge/code/fever_predict.py
+  ok      /home/namnx/duyanh_bridge/code/flip_compare.py
+  ok      /home/namnx/duyanh_bridge/code/patch_train_checkpoint.py
+               total        used        free      shared  buff/cache   available
+Mem:            94Gi        43Gi        15Gi       980Mi        34Gi        48Gi
+0, 9413 MiB, 36076 MiB
+/dev/sda2       983G  812G  131G  87% /
+[2026-11-16 14:58:39] bridges_dev.pkl exists, skip
+[2026-11-16 14:58:39] RAM available: 48 GB (need >= 16)
+loading KG ...
+KG loaded: 9913189 entities in 73s
+claims 12000-12999 done in 96s
+claims 13000-13999 done in 51s
+claims 14000-14999 done in 44s
+claims 15000-15999 done in 69s
+claims 16000-16999 done in 40s
+claims 17000-17999 done in 39s
+claims 18000-18999 done in 39s
+claims 19000-19999 done in 75s
+claims 20000-20999 done in 95s
+claims 21000-21999 done in 57s
+claims 22000-22999 done in 96s
+claims 23000-23999 done in 64s
+claims 24000-24999 done in 112s
+claims 25000-25999 done in 69s
+claims 26000-26999 done in 27s
+claims 27000-27999 done in 15s
+claims 28000-28999 done in 15s
+claims 29000-29999 done in 15s
+claims 30000-30999 done in 14s
+claims 31000-31999 done in 29s
+claims 32000-32999 done in 28s
+claims 33000-33999 done in 28s
+claims 34000-34999 done in 20s
+claims 35000-35999 done in 19s
+claims 36000-36999 done in 18s
+claims 37000-37999 done in 8s
+claims 38000-38999 done in 19s
+claims 39000-39999 done in 27s
+claims 40000-40999 done in 24s
+claims 41000-41999 done in 27s
+claims 42000-42999 done in 26s
+claims 43000-43999 done in 22s
+claims 44000-44999 done in 32s
+claims 45000-45999 done in 30s
+claims 46000-46999 done in 37s
+claims 47000-47999 done in 31s
+claims 48000-48999 done in 21s
+claims 49000-49999 done in 22s
+claims 50000-50999 done in 22s
+claims 51000-51999 done in 42s
+claims 52000-52999 done in 34s
+claims 53000-53999 done in 113s
+claims 54000-54999 done in 35s
+claims 55000-55999 done in 40s
+claims 56000-56999 done in 57s
+claims 57000-57999 done in 26s
+claims 58000-58999 done in 77s
+claims 59000-59999 done in 88s
+claims 60000-60999 done in 61s
+claims 61000-61999 done in 81s
+claims 62000-62999 done in 102s
+claims 63000-63999 done in 92s
+claims 64000-64999 done in 24s
+claims 65000-65999 done in 3s
+claims 66000-66999 done in 0s
+claims 67000-67999 done in 0s
+claims 68000-68999 done in 3s
+claims 69000-69999 done in 28s
+claims 70000-70999 done in 36s
+claims 71000-71999 done in 0s
+claims 72000-72999 done in 0s
+claims 73000-73999 done in 0s
+claims 74000-74999 done in 26s
+claims 75000-75999 done in 29s
+claims 76000-76999 done in 7s
+claims 77000-77999 done in 41s
+claims 78000-78999 done in 26s
+claims 79000-79999 done in 36s
+claims 80000-80999 done in 21s
+claims 81000-81999 done in 26s
+claims 82000-82999 done in 70s
+claims 83000-83999 done in 64s
+claims 84000-84999 done in 48s
+claims 85000-85999 done in 17s
+claims 86000-86366 done in 6s
+all shards done; rerun with --merge OUT.pkl
+merged 87 shards, 86367 claims -> /home/namnx/duyanh_bridge/out/bridges_train.pkl
+[2026-11-16 15:48:25] RAM available: 46 GB (need >= 16)
+loading KG ...
+KG loaded: 9913189 entities in 77s
+claims 0-999 done in 4s
+claims 1000-1999 done in 32s
+claims 2000-2999 done in 43s
+claims 3000-3999 done in 16s
+claims 4000-4999 done in 20s
+claims 5000-5999 done in 26s
+claims 6000-6999 done in 25s
+claims 7000-7999 done in 5s
+claims 8000-8999 done in 37s
+claims 9000-9040 done in 1s
+all shards done; rerun with --merge OUT.pkl
+merged 10 shards, 9041 claims -> /home/namnx/duyanh_bridge/out/bridges_test.pkl
+[2026-11-16 15:53:19] building /home/namnx/duyanh_bridge/out/inj_bridge5_train.pkl
+{'conjunction/claims_injected': 26706, 'conjunction/paths_injected': 105172, 'existence/claims_injected': 0, 'existence/paths_injected': 0, 'multi-hop/claims_injected': 16893, 'multi-hop/paths_injected': 59159, 'negation/claims_injected': 4221, 'negation/paths_injected': 14068, 'one-hop/claims_injected': 2947, 'one-hop/paths_injected': 9672}
+[2026-11-16 15:54:03] building /home/namnx/duyanh_bridge/out/inj_bridge5_val.pkl
+{'conjunction/claims_injected': 3854, 'conjunction/paths_injected': 13805, 'existence/claims_injected': 0, 'existence/paths_injected': 0, 'multi-hop/claims_injected': 2656, 'multi-hop/paths_injected': 8457, 'negation/claims_injected': 703, 'negation/paths_injected': 2255, 'one-hop/claims_injected': 444, 'one-hop/paths_injected': 1405}
+[2026-11-16 15:54:09] building /home/namnx/duyanh_bridge/out/inj_bridge5_test.pkl
+{'conjunction/claims_injected': 2732, 'conjunction/paths_injected': 10524, 'existence/claims_injected': 0, 'existence/paths_injected': 0, 'multi-hop/claims_injected': 1392, 'multi-hop/paths_injected': 4901, 'negation/claims_injected': 383, 'negation/paths_injected': 1283, 'one-hop/claims_injected': 321, 'one-hop/paths_injected': 986}
+[2026-11-16 15:54:13] GPU 0 free VRAM: 36076 MiB (need >= 8000)
+/home/namnx/duyanh_bridge/p2_bridge5/runnable/train.py: patched
+[2026-11-16 15:54:15] training bridge5: max 10 epochs, best dev checkpoint, patience 3 (same as baseline)
+2026-11-16 15:54:25,045 - datasets - INFO - Loading original data for split: train
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+2026-11-16 15:54:47,283 - datasets - INFO - Loading original data for split: val
+2026-11-16 15:54:50,150 - datasets - INFO - Loading original data for split: test
+Loading weights:   0%|          | 0/199 [00:00<?, ?it/s]Loading weights: 100%|██████████| 199/199 [00:00<00:00, 4855.20it/s]
+[transformers] [1mBertForSequenceClassification LOAD REPORT[0m from: bert-base-uncased
+Key                                        | Status     | 
+-------------------------------------------+------------+-
+cls.predictions.bias                       | UNEXPECTED | 
+cls.predictions.transform.LayerNorm.bias   | UNEXPECTED | 
+cls.seq_relationship.weight                | UNEXPECTED | 
+cls.predictions.transform.dense.bias       | UNEXPECTED | 
+cls.seq_relationship.bias                  | UNEXPECTED | 
+cls.predictions.transform.LayerNorm.weight | UNEXPECTED | 
+cls.predictions.transform.dense.weight     | UNEXPECTED | 
+classifier.weight                          | MISSING    | 
+classifier.bias                            | MISSING    | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+- MISSING:	those params were newly initialized because missing from the checkpoint. Consider training on your downstream task.
+2026-11-16 15:54:54,406 - train - INFO - Starting training with device cuda:0.
+2026-11-16 16:22:43,239 - train - INFO - [p2-patch] saved best checkpoint: epoch 1, dev 51.5604
+2026-11-16 16:22:43,239 - train - DEBUG - Epoch [1 / 10]
+Train loss: 0.7121, Train Accuracy: 50.5506%
+Validation loss: 0.7038, Validation Accuracy: 51.5604%
+
+2026-11-16 16:50:42,090 - train - INFO - [p2-patch] saved best checkpoint: epoch 2, dev 59.8975
+2026-11-16 16:50:42,091 - train - DEBUG - Epoch [2 / 10]
+Train loss: 0.6785, Train Accuracy: 56.5864%
+Validation loss: 0.6688, Validation Accuracy: 59.8975%
+
+2026-11-16 17:18:45,062 - train - INFO - [p2-patch] saved best checkpoint: epoch 3, dev 68.2497
+2026-11-16 17:18:45,063 - train - DEBUG - Epoch [3 / 10]
+Train loss: 0.5858, Train Accuracy: 69.6435%
+Validation loss: 0.6115, Validation Accuracy: 68.2497%
+
+2026-11-16 17:48:35,391 - train - INFO - [p2-patch] saved best checkpoint: epoch 4, dev 79.6171
+2026-11-16 17:48:35,392 - train - DEBUG - Epoch [4 / 10]
+Train loss: 0.4580, Train Accuracy: 79.4516%
+Validation loss: 0.4647, Validation Accuracy: 79.6171%
+
+2026-11-16 19:00:04,069 - train - INFO - [p2-patch] saved best checkpoint: epoch 5, dev 85.0897
+2026-11-16 19:00:04,069 - train - DEBUG - Epoch [5 / 10]
+Train loss: 0.3394, Train Accuracy: 84.9294%
+Validation loss: 0.3485, Validation Accuracy: 85.0897%
+
+2026-11-16 19:46:19,652 - train - INFO - [p2-patch] saved best checkpoint: epoch 6, dev 89.3110
+2026-11-16 19:46:19,652 - train - DEBUG - Epoch [6 / 10]
+Train loss: 0.2537, Train Accuracy: 89.1301%
+Validation loss: 0.2750, Validation Accuracy: 89.3110%
+
+2026-11-16 20:32:44,608 - train - INFO - [p2-patch] saved best checkpoint: epoch 7, dev 92.6428
+2026-11-16 20:32:44,609 - train - DEBUG - Epoch [7 / 10]
+Train loss: 0.1846, Train Accuracy: 92.8016%
+Validation loss: 0.1967, Validation Accuracy: 92.6428%
+
+2026-11-16 21:17:16,162 - train - INFO - [p2-patch] saved best checkpoint: epoch 8, dev 94.0449
+2026-11-16 21:17:16,163 - train - DEBUG - Epoch [8 / 10]
+Train loss: 0.1347, Train Accuracy: 95.0108%
+Validation loss: 0.1599, Validation Accuracy: 94.0449%
+
+2026-11-16 22:03:38,415 - train - INFO - [p2-patch] saved best checkpoint: epoch 9, dev 94.6103
+2026-11-16 22:03:38,415 - train - DEBUG - Epoch [9 / 10]
+Train loss: 0.1061, Train Accuracy: 96.0784%
+Validation loss: 0.1558, Validation Accuracy: 94.6103%
+
+2026-11-16 22:49:49,558 - train - INFO - [p2-patch] saved best checkpoint: epoch 10, dev 94.9193
+2026-11-16 22:49:49,558 - train - INFO - Epoch [10 / 10]
+Train loss: 0.0844, Train Accuracy: 96.9456%
+Validation loss: 0.1561, Validation Accuracy: 94.9193%
+
+2026-11-16 22:49:50,368 - __main__ - INFO - Loading best model state dict from epoch 10...
+2026-11-16 22:49:50,379 - __main__ - INFO - Done loading state dict. 
+2026-11-16 22:51:48,952 - __main__ - INFO - Model "fever_bert_bridge5": Test accuracy: 95.3434%, average_test_loss=0.1456. 
+2026-11-16 22:51:48,952 - __main__ - INFO - test_results={'existence': {'accuracy': 0.9738260200153964, 'precision': 0.9659969088098919, 'recall': 0.9811616954474097, 'f1': 0.9735202492211839}, 'substitution': {'accuracy': 0.9524581307401405, 'precision': 0.45390070921985815, 'recall': 0.8533333333333334, 'f1': 0.5925925925925926}, 'multi hop': {'accuracy': 0.9228171731789677, 'precision': 0.9344858962693358, 'recall': 0.9210762331838565, 'f1': 0.9277326106594399}, 'multi claim': {'accuracy': 0.9526267840874583, 'precision': 0.9452449567723343, 'recall': 0.9425287356321839, 'f1': 0.943884892086331}, 'negation': {'accuracy': 0.9079147640791476, 'precision': 0.8963815789473685, 'recall': 0.9038142620232172, 'f1': 0.9000825763831544}, 'single hop': {'accuracy': 0.9625430539609644, 'precision': 0.9567714631197098, 'recall': 0.9640572646969235, 'f1': 0.9604005461993628}, 'overall': {'accuracy': 0.9534343546067913, 'loss': 0.14556395569421055, 'precision': 0.9512139777626504, 'recall': 0.9531605275125057, 'f1': 0.9521862578080637}}
+[2026-11-16 22:51:51] NOTE: run_stuff.py also prints a test score. Do not use it to choose between variants (dev only).
+[2026-11-16 22:51:51] GPU 0 free VRAM: 10571 MiB (need >= 2048)
+Loading weights:   0%|          | 0/199 [00:00<?, ?it/s]Loading weights:  23%|██▎       | 46/199 [00:00<00:00, 448.54it/s]Loading weights: 100%|██████████| 199/199 [00:00<00:00, 1422.12it/s]
+[transformers] [1mBertForSequenceClassification LOAD REPORT[0m from: bert-base-uncased
+Key                                        | Status     | 
+-------------------------------------------+------------+-
+cls.predictions.transform.dense.bias       | UNEXPECTED | 
+cls.predictions.transform.dense.weight     | UNEXPECTED | 
+cls.predictions.bias                       | UNEXPECTED | 
+cls.predictions.transform.LayerNorm.weight | UNEXPECTED | 
+cls.predictions.transform.LayerNorm.bias   | UNEXPECTED | 
+cls.seq_relationship.bias                  | UNEXPECTED | 
+cls.seq_relationship.weight                | UNEXPECTED | 
+classifier.bias                            | MISSING    | 
+classifier.weight                          | MISSING    | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+- MISSING:	those params were newly initialized because missing from the checkpoint. Consider training on your downstream task.
+accuracy 94.9193% (12592/13266) in 98s
+  one-hop      95.6812%  (n=2547)
+  multi-hop    93.8959%  (n=3555)
+  conjunction  97.3361%  (n=4317)
+  existence    97.5269%  (n=930)
+  negation     89.0975%  (n=1917)
+group                       n     base      new   delta  +flip  -flip    NFR McNemar p
+overall                 13266   90.06%   94.92%  +4.85    958    314  2.37%  5.01e-76
+one-hop                  2547   94.46%   95.68%  +1.22     58     27  1.06%   0.00102
+one-hop/True             1299   98.08%   98.92%  +0.85     16      5  0.38%    0.0266
+one-hop/False            1248   90.71%   92.31%  +1.60     42     22  1.76%    0.0169
+multi-hop                3555   77.36%   93.90% +16.54    686     98  2.76%  1.9e-109
+multi-hop/True           1819   68.06%   92.80% +24.74    517     67  3.68%  4.33e-87
+multi-hop/False          1736   87.10%   95.05%  +7.95    169     31  1.79%  3.41e-24
+conjunction              4317   95.95%   97.34%  +1.39    128     68  1.58%  2.18e-05
+conjunction/True         1916   97.13%   97.96%  +0.84     50     34  1.77%     0.101
+conjunction/False        2401   95.00%   96.83%  +1.83     78     34  1.42%  3.91e-05
+existence                 930   96.77%   97.53%  +0.75     14      7  0.75%     0.189
+existence/True            483   96.89%   98.96%  +2.07     11      1  0.21%   0.00635
+existence/False           447   96.64%   95.97%  -0.67      3      6  1.34%     0.508
+negation                 1917   91.29%   89.10%  -2.19     72    114  5.95%   0.00255
+negation/True             909   90.54%   89.00%  -1.54     43     57  6.27%     0.193
+negation/False           1008   91.96%   89.19%  -2.78     29     57  5.65%   0.00335
+[2026-11-16 22:53:41] best checkpoint used: epoch=10 dev_accuracy=94.9193
+[2026-11-16 22:53:41] best epoch / dev accuracy from training log:
+2026-11-16 21:17:16,162 - train - INFO - [p2-patch] saved best checkpoint: epoch 8, dev 94.0449
+2026-11-16 22:03:38,415 - train - INFO - [p2-patch] saved best checkpoint: epoch 9, dev 94.6103
+2026-11-16 22:49:49,558 - train - INFO - [p2-patch] saved best checkpoint: epoch 10, dev 94.9193
+2026-11-16 22:49:50,368 - __main__ - INFO - Loading best model state dict from epoch 10...
+2026-11-16 22:51:48,952 - __main__ - INFO - Model "fever_bert_bridge5": Test accuracy: 95.3434%, average_test_loss=0.1456. 
+[2026-11-16 22:53:41] done: all

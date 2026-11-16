@@ -9,6 +9,8 @@
 #   ./run_p2.sh train     # GPU: upstream run_stuff.py, max N_EPOCHS, best-dev checkpoint, patience 3
 #   ./run_p2.sh eval      # GPU: dev predictions with the best checkpoint + flip comparison vs baseline
 #   ./run_p2.sh all       # everything above
+# The best-dev checkpoint is written to disk at every new best epoch; if training is killed,
+# `./run_p2.sh eval` still evaluates the best epoch reached (see models/best_so_far.txt).
 # Run long stages in the background, e.g.:
 #   nohup ./run_p2.sh all > ~/duyanh_bridge/logs/p2_all.log 2>&1 &
 #
@@ -92,6 +94,9 @@ stage_train() {
   # Fresh copy of the upstream code so the baseline checkpoint in $RUNNABLE/models is never overwritten.
   mkdir -p "$P2/runnable"/{data,models,results}
   cp "$RUNNABLE"/*.py "$P2/runnable/"
+  # Save the best-dev checkpoint to disk at every new best (P2 copy only), so a killed run
+  # still leaves models/bert-base-uncased.pth + models/best_so_far.txt for `./run_p2.sh eval`.
+  "$PY" "$CODE/patch_train_checkpoint.py" "$P2/runnable/train.py"
   [ -e "$P2/runnable/data/factkg" ] || ln -s "$FACTKG_DIR" "$P2/runnable/data/factkg"
   [ -e "$P2/runnable/cache" ] || cp -r "$RUNNABLE/cache" "$P2/runnable/cache"   # model weights, own copy
   cd "$P2/runnable"
@@ -116,6 +121,7 @@ stage_eval() {
     --output-dir "$res" --batch-size 8
   "$PY" flip_compare.py --base "$BASE_DEV_PRED" --new "$res/predictions.pkl" --output "$res/flips.json" \
     | tee "$LOGS/p2_${VARIANT}_flips.txt"
+  log "best checkpoint used: $(cat "$P2/runnable/models/best_so_far.txt" 2>/dev/null || echo unknown)"
   log "best epoch / dev accuracy from training log:"
   grep -E "best|Best|Early stopping|Test accuracy" "$LOGS/p2_${VARIANT}_train.log" | tail -5 || true
 }
@@ -124,7 +130,7 @@ stage_check() {  # read-only: verify inputs and show resources before starting a
   local ok=1 f
   for f in "$PY" "$KG" "$RUNNABLE/run_stuff.py" "$RUNNABLE/cache" "$BASE_DEV_PRED" \
            "$FACTKG_DIR"/factkg_{train,dev,test}.pickle "$SUBG_DIR"/subgraphs_one_hop_{train,val,test}.pkl \
-           "$CODE"/{bridge_retrieval,build_injected,fever_predict,flip_compare}.py; do
+           "$CODE"/{bridge_retrieval,build_injected,fever_predict,flip_compare,patch_train_checkpoint}.py; do
     if [ -e "$f" ]; then echo "  ok      $f"; else echo "  MISSING $f"; ok=0; fi
   done
   free -h | head -2

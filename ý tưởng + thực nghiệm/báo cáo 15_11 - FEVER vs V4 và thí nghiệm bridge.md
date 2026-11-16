@@ -346,5 +346,6 @@ NFR (tỷ lệ câu đúng bị làm sai) toàn tập là 2,37% trên dev và 2,
 | Bridge, bridge vàng, dự đoán và flip của P1, log (GPU-03) | `fever2026_bridge/results_20261115/gpu03/` |
 | Báo cáo P0 trên dev; so sánh FEVER với V4 trên test | `fever2026_bridge/results_20261115/{p0_report_dev,test_fever_vs_v4_r3,test_fever_vs_v4_walk5}/` |
 | P2: dự đoán dev/test, flip, log train, thống kê input | `fever2026_bridge/results_20261117/gpu03/`. File `.pkl`/`.json` bị gitignore, chỉ có ở local |
+| Checkpoint P2 bridge5 (epoch 10, dev 94,92%, test 95,34%) | Local: `fever2026_official/runnable/models/p2_bridge5_ep10.pth` (438 MB, sha256 `93904ae7…c97e587e`, gitignore). Checkpoint baseline 92,60% nằm cùng thư mục: `fever_ckpt_10ep.pth` |
 | Checkpoint R3/V4, dự đoán walk5/hybrid/dev (sao lưu từ GPU-01, nằm ngoài repo) | `C:\Duy Anh Le Code\FactKG_gpu01_backup\FactKG\` |
 | Trên GPU-03 | `~/duyanh_bridge/`: KG 1,5 GB, code, `out/` (bridge và input cho cả 3 split), checkpoint P2 tại `p2_bridge5/runnable/models/bert-base-uncased.pth` |

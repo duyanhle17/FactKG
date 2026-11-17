@@ -9,3 +9,6 @@ __pycache__/
 lightning_logs/
 predictions_hop.json
 test_relations_top3.json
+
+# Office lock files (PowerPoint/Word/Excel)
+~$*
